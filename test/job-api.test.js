@@ -179,3 +179,18 @@ test('thumbnail round-trip, summary flag, and delete cleanup', async () => {
   const pngPath = path.join(process.env.DATA_DIR, 'jobs', job.id + '.png');
   assert.ok(!fs.existsSync(pngPath), 'png removed on delete');
 });
+
+test('spacer source: PUT /dxf with kind+params tags the source; bare {dxf} preserves it', async () => {
+  const job = await j(await fetch(`${base}/api/jobs`, postJson({ name: 'sp' })));
+  const dxf = '0\r\nSECTION\r\n2\r\nENTITIES\r\n0\r\nENDSEC\r\n0\r\nEOF\r\n';
+  const params = { inputs: { plateW: '33', cols: '3' }, spacingMode: 'fixed', deletedPass: [] };
+
+  let u = await j(await fetch(`${base}/api/jobs/${job.id}/dxf`, putJson({ dxf, kind: 'spacer', params })));
+  assert.equal(u.source.kind, 'spacer');
+  assert.deepEqual(u.source.params, params);
+
+  // a later bare {dxf} save (as the cut-path view does on every save) must NOT clobber it
+  u = await j(await fetch(`${base}/api/jobs/${job.id}/dxf`, putJson({ dxf })));
+  assert.equal(u.source.kind, 'spacer', 'kind preserved');
+  assert.deepEqual(u.source.params, params, 'params preserved');
+});

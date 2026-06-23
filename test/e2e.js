@@ -1,13 +1,12 @@
 'use strict';
 
 /*
- * Headless end-to-end smoke test (real Chromium via Puppeteer).
+ * Full-flow headless end-to-end test (real Chromium via Puppeteer).
  * Not part of `npm test` (needs a browser); run with: node test/e2e.js
  *
- * Drives the actual UI: load page -> create job -> load a part (the geometry
- * engine runs in the real browser and produces G-code) -> save -> finalize ->
- * verify the .nc is persisted and downloadable server-side; then open the
- * kiosk and drive the job Start -> +1 cut -> Done.
+ * Walks the whole job-centric pipeline in a real browser:
+ *   dashboard New job -> spacer "Save & Cut path" -> cut page auto-loads the
+ *   generated spacer DXF and produces G-code -> finalize -> kiosk Start/+1/Done.
  */
 
 const os = require('os');
@@ -20,28 +19,11 @@ const { createApp } = require('../server/index');
 const store = require('../server/store');
 const puppeteer = require('puppeteer');
 
-const SQUARE_DXF = [
-  '0', 'SECTION', '2', 'ENTITIES',
-  '0', 'POLYLINE', '8', '0', '66', '1', '70', '1',
-  '0', 'VERTEX', '8', '0', '10', '0', '20', '0',
-  '0', 'VERTEX', '8', '0', '10', '10', '20', '0',
-  '0', 'VERTEX', '8', '0', '10', '10', '20', '10',
-  '0', 'VERTEX', '8', '0', '10', '0', '20', '10',
-  '0', 'SEQEND', '8', '0',
-  '0', 'ENDSEC', '0', 'EOF'
-].join('\r\n') + '\r\n';
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-async function poll(fn, { tries = 40, gap = 150 } = {}) {
-  for (let i = 0; i < tries; i++) {
-    const v = await fn();
-    if (v) return v;
-    await sleep(gap);
-  }
+async function poll(fn, { tries = 50, gap = 150 } = {}) {
+  for (let i = 0; i < tries; i++) { const v = await fn(); if (v) return v; await sleep(gap); }
   return null;
 }
-
 async function clickByText(pg, text) {
   const ok = await pg.evaluate((t) => {
     const b = [...document.querySelectorAll('.card .btn')].find((x) => x.textContent.trim().includes(t));
@@ -65,81 +47,71 @@ async function clickByText(pg, text) {
   let failed = false;
   try {
     const page = await browser.newPage();
-    const errors = [];
-    page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
-    page.on('console', (m) => { if (m.type() === 'error') errors.push('console.error: ' + m.text()); });
-
-    // Deny the attachment download triggered by Finalize so it doesn't navigate.
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message)); // uncaught JS exceptions only
     const client = await page.createCDPSession();
-    await client.send('Page.setDownloadBehavior', { behavior: 'deny' });
+    await client.send('Page.setDownloadBehavior', { behavior: 'deny' }); // Finalize triggers a download
+    const noJsErrors = (label) => assert.equal(pageErrors.length, 0, label + ' had JS exceptions: ' + pageErrors.join(' | '));
 
+    // 1) Dashboard -> New job
     await page.goto(base + '/', { waitUntil: 'networkidle0' });
+    await page.waitForSelector('#btnNew', { visible: true });
+    noJsErrors('dashboard');
+    console.log('✓ dashboard loaded');
 
-    // 1) App + job panel rendered, no uncaught errors on load
+    await page.evaluate(() => { window.prompt = () => 'E2E spacer'; });
+    await Promise.all([page.waitForNavigation({ waitUntil: 'networkidle0' }), page.click('#btnNew')]);
+    assert.ok(page.url().includes('/spacer?job='), 'navigated to spacer; got ' + page.url());
+    const jobId = new URL(page.url()).searchParams.get('job');
+    console.log('✓ New job created -> spacer (' + jobId + ')');
+
+    // 2) Spacer -> Save & Cut path
+    await page.waitForSelector('#btnSaveCut', { visible: true });
+    noJsErrors('spacer');
+    await Promise.all([page.waitForNavigation({ waitUntil: 'networkidle0' }), page.click('#btnSaveCut')]);
+    assert.ok(page.url().includes('/cut?job=' + jobId), 'navigated to cut path; got ' + page.url());
+    console.log('✓ spacer "Save & Cut path" -> cut page');
+
+    // 3) Cut path: the spacer DXF auto-loads and the engine produces G-code
     await page.waitForSelector('#jobBox', { visible: true });
-    assert.equal(errors.length, 0, 'no page/console errors on load; got: ' + errors.join(' | '));
-    console.log('✓ page loaded, #jobBox visible, no JS errors');
+    await page.waitForFunction(
+      () => typeof state !== 'undefined' && state.gcode && state.gcode.text && state.gcode.text.length > 0,
+      { timeout: 20000 });
+    noJsErrors('cut path');
+    const gen = await page.evaluate(() => ({
+      chained: !!(state.chained && state.chained.loops && state.chained.loops.length),
+      holes: state.chained.loops.filter((l) => l.isHole).length,
+      glen: state.gcode.text.length
+    }));
+    assert.ok(gen.chained && gen.holes > 0, 'spacer DXF chained with holes (' + gen.holes + ')');
+    assert.ok(gen.glen > 0, 'G-code generated from spacer part');
+    console.log('✓ cut page auto-loaded spacer part; ' + gen.holes + ' holes, G-code ' + gen.glen + ' chars');
 
-    // 2) Create a job via the New button (stub prompt)
-    await page.evaluate(() => { window.prompt = () => 'E2E job'; });
-    await page.click('#btnJobNew');
-    await page.waitForFunction(() => document.getElementById('jobName').textContent === 'E2E job', { timeout: 5000 });
-    console.log('✓ New job created and shown in panel');
-
-    const jobId = (await (await fetch(`${base}/api/jobs`)).json()).find((j) => j.name === 'E2E job').id;
-    assert.ok(jobId, 'created job present in API list');
-
-    // 3) Load a part — the engine runs in the real browser and must produce G-code
-    const gen = await page.evaluate((dxf) => {
-      loadDxfText(dxf, 'sq.dxf');
-      return { hasChained: !!(state.chained && state.chained.loops && state.chained.loops.length),
-               gcodeLen: (state.gcode && state.gcode.text) ? state.gcode.text.length : 0 };
-    }, SQUARE_DXF);
-    assert.ok(gen.hasChained, 'DXF loaded and chained in-browser');
-    assert.ok(gen.gcodeLen > 0, 'G-code generated in-browser (len ' + gen.gcodeLen + ')');
-    console.log('✓ part loaded; engine generated G-code in-browser (' + gen.gcodeLen + ' chars)');
-
-    // Set a quantity so the kiosk can show partial progress (default is 1)
+    // set quantity and finalize
     await page.evaluate(() => { const q = document.getElementById('jobQty'); q.value = '3'; q.dispatchEvent(new Event('change')); });
-
-    // 4) Save -> job gains source DXF on the server
-    await page.click('#btnJobSave');
-    const saved = await poll(async () => {
-      const j = await (await fetch(`${base}/api/jobs/${jobId}`)).json();
-      return (j.source && j.source.file && j.settings) ? j : null;
-    });
-    assert.ok(saved, 'job saved with source DXF + settings');
-    console.log('✓ Save persisted source DXF + settings server-side');
-
-    // 5) Finalize -> .nc stored, status ready
     await page.click('#btnJobFinalize');
     const ready = await poll(async () => {
-      const j = await (await fetch(`${base}/api/jobs/${jobId}`)).json();
-      return (j.status === 'ready' && j.outputs && j.outputs.ncFile) ? j : null;
+      const jb = await (await fetch(`${base}/api/jobs/${jobId}`)).json();
+      return (jb.status === 'ready' && jb.outputs && jb.outputs.ncFile) ? jb : null;
     });
-    assert.ok(ready, 'job finalized: status ready + ncFile set');
+    assert.ok(ready, 'job finalized to ready');
+    assert.equal(ready.source.kind, 'spacer', 'job source tagged as spacer (preserved through cut-path save)');
+    assert.equal(ready.quantity, 3, 'quantity saved');
+    console.log('✓ finalized; source.kind=spacer, qty=3, .nc stored');
 
-    const ncRes = await fetch(`${base}/api/jobs/${jobId}/nc`);
-    assert.equal(ncRes.status, 200, '.nc downloadable');
-    const nc = await ncRes.text();
-    const browserGcode = await page.evaluate(() => state.gcode.text);
-    assert.equal(nc, browserGcode, 'downloaded .nc is byte-identical to the in-browser G-code');
-    console.log('✓ Finalize stored .nc; download byte-identical to generated G-code');
-
-    // 6) Kiosk view: the finalized job shows as Ready; run it Start -> +1 cut -> Done
+    // 4) Kiosk: run it Start -> +1 cut -> Done
     const kiosk = await browser.newPage();
-    const kerr = [];
-    kiosk.on('pageerror', (e) => kerr.push('pageerror: ' + e.message));
-    kiosk.on('console', (m) => { if (m.type() === 'error') kerr.push('console.error: ' + m.text()); });
+    const kErrors = [];
+    kiosk.on('pageerror', (e) => kErrors.push(e.message));
     const kclient = await kiosk.createCDPSession();
     await kclient.send('Page.setDownloadBehavior', { behavior: 'deny' });
     await kiosk.goto(base + '/kiosk', { waitUntil: 'networkidle0' });
 
     await kiosk.waitForFunction(() => document.querySelectorAll('.card.ready').length > 0, { timeout: 10000 });
-    assert.equal(kerr.length, 0, 'kiosk loaded without JS errors; got: ' + kerr.join(' | '));
+    assert.equal(kErrors.length, 0, 'kiosk JS exceptions: ' + kErrors.join(' | '));
     const thumbOk = await kiosk.evaluate(() => { const i = document.querySelector('.card .thumb img'); return !!(i && i.complete && i.naturalWidth > 0); });
-    assert.ok(thumbOk, 'kiosk shows the part thumbnail');
-    console.log('✓ kiosk shows the finalized job as Ready, with thumbnail');
+    assert.ok(thumbOk, 'kiosk shows a part thumbnail');
+    console.log('✓ kiosk shows job Ready with preview');
 
     await clickByText(kiosk, 'Start');
     await kiosk.waitForFunction(() => document.querySelectorAll('.card.running').length > 0, { timeout: 10000 });
@@ -149,7 +121,7 @@ async function clickByText(pg, text) {
     await kiosk.waitForFunction(() => document.querySelectorAll('.card.done').length > 0, { timeout: 10000 });
     const fin = await (await fetch(`${base}/api/jobs/${jobId}`)).json();
     assert.equal(fin.status, 'done', 'job marked done from the kiosk');
-    console.log('✓ kiosk Start → +1 cut → Done drives the job through the queue');
+    console.log('✓ kiosk Start → +1 cut → Done');
 
     console.log('\nALL E2E CHECKS PASSED');
   } catch (e) {

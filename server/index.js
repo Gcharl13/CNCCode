@@ -13,15 +13,19 @@ function createApp() {
   // Quietly handle the browser's automatic favicon request (no asset yet).
   app.get('/favicon.ico', (req, res) => res.status(204).end());
 
-  // Clean URL for the shop-floor kiosk (static also serves /kiosk.html).
-  app.get('/kiosk', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'kiosk.html')));
+  // Page routes — one job, four screens. (static is index:false so '/' is the dashboard)
+  const page = (f) => (req, res) => res.sendFile(path.join(__dirname, '..', 'public', f));
+  app.get('/', page('dashboard.html'));      // jobs dashboard (home)
+  app.get('/spacer', page('spacer.html'));   // spacer design stage
+  app.get('/cut', page('index.html'));       // cut-path stage (the CNC Nest app)
+  app.get('/kiosk', page('kiosk.html'));     // operator production board
 
   // API
   app.get('/api/health', (req, res) => res.json({ ok: true, ts: Date.now() }));
   app.use('/api', jobsRouter);
 
-  // Static app (the CNC Nest HTML and any assets)
-  app.use(express.static(path.join(__dirname, '..', 'public')));
+  // Static assets (index:false — the dashboard owns '/')
+  app.use(express.static(path.join(__dirname, '..', 'public'), { index: false }));
 
   // JSON error handler (keep last)
   // eslint-disable-next-line no-unused-vars

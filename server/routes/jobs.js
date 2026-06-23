@@ -39,12 +39,13 @@ router.put('/jobs/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// Save the source DXF (sent separately from metadata to avoid resending it on every save)
+// Save the source DXF (sent separately from metadata to avoid resending it on every save).
+// Optional { kind, params } tags the source (e.g. kind:'spacer' from the generator).
 router.put('/jobs/:id/dxf', async (req, res, next) => {
   try {
     const dxf = (req.body && req.body.dxf) || '';
     if (!dxf) return res.status(400).json({ error: 'Missing dxf text' });
-    const job = await store.saveSource(req.params.id, dxf);
+    const job = await store.saveSource(req.params.id, dxf, { kind: req.body.kind, params: req.body.params });
     if (!job) return notFound(res);
     res.json(job);
   } catch (e) { next(e); }

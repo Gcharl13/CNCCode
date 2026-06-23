@@ -56,7 +56,9 @@
   <span id="fileLabel">no file</span>
   <label for="fileInput"><button onclick="document.getElementById('fileInput').click()" class="primary">Open DXF…</button></label>
   <input type="file" id="fileInput" accept=".dxf" style="display:none">
-  <a href="/kiosk" target="_blank" style="color:var(--accent);text-decoration:none;border:1px solid var(--line);padding:6px 10px;border-radius:5px;margin-left:8px">Kiosk &#8599;</a>
+  <a href="/" style="color:var(--accent);text-decoration:none;border:1px solid var(--line);padding:6px 10px;border-radius:5px;margin-left:8px">&#8592; Jobs</a>
+  <a id="lnkSpacer" href="/spacer" style="color:var(--accent);text-decoration:none;border:1px solid var(--line);padding:6px 10px;border-radius:5px;margin-left:6px">Spacer</a>
+  <a href="/kiosk" target="_blank" style="color:var(--accent);text-decoration:none;border:1px solid var(--line);padding:6px 10px;border-radius:5px;margin-left:6px">Kiosk &#8599;</a>
 </header>
 
 <div id="main">
@@ -10949,6 +10951,7 @@ if (typeof window !== 'undefined') {
     el('jobName').textContent = current ? current.name : '— none —';
     el('jobStatus').textContent = current ? current.status : '—';
     if (current && current.quantity != null) el('jobQty').value = current.quantity;
+    var sp = el('lnkSpacer'); if (sp && current) sp.href = '/spacer?job=' + current.id;
   }
 
   /* ---- snapshot / restore every sidebar setting input ---- */
@@ -11111,6 +11114,9 @@ if (typeof window !== 'undefined') {
         if (typeof renderNestPanel === 'function') renderNestPanel();
       }
     });
+    // open a job handed off by the dashboard / spacer page (?job=ID)
+    var urlJob = new URLSearchParams(location.search).get('job');
+    if (urlJob) openJob(urlJob);
   }
   if (document.readyState !== 'loading') wire();
   else window.addEventListener('DOMContentLoaded', wire);

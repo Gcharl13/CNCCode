@@ -136,13 +136,17 @@ async function updateJob(id, patch) {
   });
 }
 
-async function saveSource(id, dxfText) {
+async function saveSource(id, dxfText, meta = {}) {
   return withLock(id, async () => {
     const job = await getJob(id);
     if (!job) return null;
     const file = id + '.dxf';
     await atomicWrite(sibling(id, 'dxf'), dxfText);
+    // Preserve any existing source fields (e.g. kind:'spacer' + params), then
+    // apply meta only when provided so a bare {dxf} save never clobbers them.
     job.source = Object.assign({ kind: 'dxf' }, job.source, { file });
+    if (meta.kind) job.source.kind = meta.kind;
+    if (meta.params !== undefined) job.source.params = meta.params;
     job.updatedAt = new Date().toISOString();
     await atomicWrite(jobPath(id), JSON.stringify(job, null, 2));
     return job;

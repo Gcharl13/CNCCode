@@ -1,18 +1,17 @@
 # CNC Job Planner
 
-A Dockerized **production queue** for cutting parts on an NK105 (G2) CNC router.
-It serves the existing **CNC Nest** app (load DXF → nest → vacuum template →
-NK105 G-code) and adds a server-persisted job queue: create/name a job, load its
-DXF, set quantity, nest, generate the template + G-code, save it, and finalize →
-download the `.nc`. Jobs survive container restarts.
+A Dockerized **job planner / production queue** for cutting HDPE **duct-bank spacers**
+on an NK105 (G2) CNC router. One job flows through four screens that share a single
+server-persisted store (jobs survive container restarts):
 
-Two views share one queue: the **Design view** (`/`) where an engineer builds and
-finalizes jobs, and a touch-friendly **Kiosk view** (`/kiosk`) by the machine where
-the operator runs them (Start → Cutting → Done, tracking cut counts).
+- **Jobs dashboard** (`/`) — list every job, create new ones, jump into a stage.
+- **Spacer design** (`/spacer`) — parametric duct-bank-spacer generator (plate +
+  conduit grid + concrete-fill + rebar) that emits the part DXF.
+- **Cut path** (`/cut`) — the CNC Nest app: nest, vacuum template, NK105 G-code, finalize.
+- **Kiosk** (`/kiosk`) — touch board by the machine; the operator runs the queue
+  (Start → Cutting → Done, tracking cut counts).
 
-> This is v1. It starts from the existing **load-DXF** workflow. The parametric
-> **HDPE duct-bank spacer generator** plugs in next (see *Spacer seam* below) and
-> needs no backend changes — it just feeds geometry into the same pipeline.
+Typical flow: **dashboard → spacer design → cut path → finalize → kiosk**.
 
 ## Run
 
@@ -41,9 +40,11 @@ npm run test:e2e   # real-browser smoke incl. kiosk flow (needs Chromium)
 
 ## Layout
 ```
-public/index.html     CNC Nest app + Job panel        (Design view, served at /)
-public/kiosk.html     Shop-floor production board      (Kiosk view, served at /kiosk)
-server/index.js       Express: static + /api + error handling
+public/dashboard.html Jobs dashboard                   (served at /)
+public/spacer.html    Duct-bank spacer generator       (served at /spacer)
+public/index.html     CNC Nest app + Job panel         (cut path, served at /cut)
+public/kiosk.html     Shop-floor production board       (served at /kiosk)
+server/index.js       Express: page routes + static + /api + error handling
 server/store.js       Atomic JSON job store (one file per job + sibling .dxf/.nc)
 server/routes/jobs.js REST API for the queue
 data/jobs/            Persisted jobs (mounted volume)
@@ -58,7 +59,7 @@ test/                 Headless engine + job API tests
 | POST | `/api/jobs` | create `{ name, units }` |
 | GET | `/api/jobs/:id` | full job |
 | PUT | `/api/jobs/:id` | update `{ name, units, quantity, settings, nesting, status }` |
-| PUT | `/api/jobs/:id/dxf` | save source DXF `{ dxf }` |
+| PUT | `/api/jobs/:id/dxf` | save source DXF `{ dxf, kind?, params? }` (e.g. `kind:'spacer'`) |
 | GET | `/api/jobs/:id/dxf` | source DXF text |
 | POST | `/api/jobs/:id/finalize` | store G-code `{ gcode, estMinutes }`, status → `ready` |
 | GET | `/api/jobs/:id/nc` | download the finalized `.nc` |
@@ -79,15 +80,16 @@ Open **`/kiosk`** on a screen by the machine. It shows a live, touch-friendly "n
 list of finalized jobs (auto-refreshes ~4 s): **Cutting** pinned at top, then **Ready**
 (oldest first), then recently **Done**. Each card has a part preview and a `cut / quantity`
 progress bar. The operator taps **Start** (Ready → Cutting), **+1 cut** to count parts
-(auto-completes at quantity), and **Done**; **Download .nc** grabs the file. The Design
-view links out via "Kiosk ↗" and the kiosk back via "Design ↗".
+(auto-completes at quantity), and **Done**; **Download .nc** grabs the file. Every screen
+cross-links (Jobs / Spacer / Cut path / Kiosk).
 
-## Spacer seam (next phase)
-A duct-bank-spacer generator will produce a DXF string and call the app's existing
-`loadDxfText(text, name)` — the single integration point. Everything downstream
-(nesting, template, G-code) already works on whatever `loadDxfText` receives, so the
-generator drops in with no backend changes; the job's `source` simply becomes
-`{ kind: "spacer", params: {...} }` instead of a stored DXF.
+## Spacer generator
+The spacer page builds a parametric HDPE duct-bank spacer (plate, conduit grid with Sch-40
+hole sizing, concrete-fill holes, rebar). On **Save & Cut path →** it writes the part DXF to
+the job (`source.kind:"spacer"` + the params, so the job can be reopened and re-edited) plus a
+preview, then hands off to the cut-path view. That view loads the DXF through the engine's
+`loadDxfText` — the single integration seam — so nesting / template / G-code work unchanged;
+re-saving on the cut-path side preserves the spacer `kind`/`params`.
 
 ## Assumptions
 - Single trusted operator on a LAN (no auth in v1).

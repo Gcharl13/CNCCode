@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ductbank Spacer Generator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#e9edf1; --surface:#ffffff; --surface-2:#f4f6f8;
+    --line:#d5dce3; --line-strong:#b4bec9;
+    --ink:#161a1e; --ink-2:#5b6873; --ink-3:#8a96a0;
+    --accent:#e4572e;          /* duct orange — used sparingly */
+    --pvc:#2f6db0; --pass:#cf962a; --rebar:#c0392b; --notch:#566270;
+    --sheet:#fcfcfa; --warn-bg:#fdf2e9; --warn-bd:#f0b07e; --warn-tx:#9a4a14;
+    --sans:"Archivo",system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;}
+
+  .topbar{display:flex;align-items:center;gap:18px;padding:12px 18px;background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30;}
+  .brand{display:flex;align-items:baseline;gap:10px;min-width:0;}
+  .brand .mark{font-weight:700;letter-spacing:.14em;font-size:13px;text-transform:uppercase;white-space:nowrap;}
+  .brand .mark .dot{color:var(--accent);}
+  .brand .sub{font-family:var(--mono);font-size:11px;color:var(--ink-3);letter-spacing:.04em;white-space:nowrap;}
+  .topbar .spacer{flex:1;}
+  .topbar .partfield{display:flex;align-items:center;gap:8px;}
+  .topbar .partfield label{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-2);}
+  .topbar .partfield input{font-family:var(--mono);font-size:13px;width:190px;padding:6px 9px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink);}
+  .topbar .partfield input:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:var(--accent);}
+
+  .btn{font-family:var(--sans);font-size:12.5px;font-weight:600;letter-spacing:.02em;padding:8px 14px;border-radius:6px;border:1px solid var(--ink);background:var(--ink);color:#fff;cursor:pointer;white-space:nowrap;transition:transform .04s ease, background .12s ease;}
+  .btn:hover{background:#000;}
+  .btn:active{transform:translateY(1px);}
+  .btn.ghost{background:transparent;color:var(--ink);border-color:var(--line-strong);}
+  .btn.ghost:hover{background:var(--surface-2);}
+  .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+  .app{display:flex;height:calc(100vh - 57px);min-height:0;}
+  .viewport-wrap{flex:1;min-width:0;position:relative;background:radial-gradient(120% 120% at 30% 10%, #eef1f4 0%, #e3e8ec 100%);overflow:hidden;}
+  #stage{position:absolute;inset:0;display:block;width:100%;height:100%;cursor:grab;touch-action:none;}
+  #stage.panning{cursor:grabbing;}
+
+  .vtools{position:absolute;top:14px;left:14px;display:flex;gap:6px;z-index:6;flex-wrap:wrap;background:rgba(255,255,255,.82);backdrop-filter:blur(4px);border:1px solid var(--line);border-radius:8px;padding:6px;}
+  .tgl{font-family:var(--sans);font-size:11.5px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;padding:6px 10px;border-radius:5px;border:1px solid transparent;background:transparent;color:var(--ink-2);cursor:pointer;}
+  .tgl:hover{background:var(--surface-2);color:var(--ink);}
+  .tgl[aria-pressed="true"]{background:var(--ink);color:#fff;}
+  .tgl:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
+  .vtools .sep{width:1px;background:var(--line);margin:2px 2px;}
+
+  .warnbox{position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:6;max-width:62%;display:none;align-items:center;gap:8px;background:var(--warn-bg);border:1px solid var(--warn-bd);color:var(--warn-tx);font-size:12.5px;font-weight:500;padding:7px 12px;border-radius:7px;}
+  .warnbox.show{display:flex;}
+
+  .tooltip{position:fixed;z-index:50;pointer-events:none;display:none;font-family:var(--mono);font-size:11.5px;line-height:1.5;background:var(--ink);color:#fff;padding:6px 9px;border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.25);white-space:nowrap;}
+  .tooltip .swatch{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:middle;}
+
+  .panel{width:392px;flex:0 0 392px;background:var(--surface);border-left:1px solid var(--line);overflow-y:auto;padding:4px 0 40px;}
+  .group{border-bottom:1px solid var(--line);padding:18px 20px;}
+  .group:last-of-type{border-bottom:none;}
+  .grouphead{display:flex;align-items:center;gap:9px;margin:0 0 14px;}
+  .grouphead .idx{font-family:var(--mono);font-size:11px;color:#fff;background:var(--ink);width:20px;height:20px;border-radius:5px;display:grid;place-items:center;font-weight:700;}
+  .grouphead h2{font-size:12.5px;letter-spacing:.12em;text-transform:uppercase;margin:0;font-weight:700;}
+  .grouphead .chip{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-2);background:var(--surface-2);border:1px solid var(--line);border-radius:20px;padding:2px 8px;}
+  .grouphead .chip .key{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:middle;}
+
+  .row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;margin:9px 0;}
+  .row label{font-size:13px;color:var(--ink);}
+  .row label .hint{display:block;font-size:11px;color:var(--ink-3);font-weight:400;}
+  .note{font-size:11.5px;line-height:1.5;color:var(--ink-3);margin:11px 0 0;}
+  .note b{color:var(--ink-2);font-weight:600;}
+  .num{display:flex;align-items:center;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);overflow:hidden;width:122px;}
+  .num:focus-within{outline:2px solid var(--accent);outline-offset:-1px;border-color:var(--accent);}
+  .num input{font-family:var(--mono);font-size:13px;width:100%;border:none;background:transparent;color:var(--ink);padding:7px 0 7px 10px;text-align:right;-moz-appearance:textfield;}
+  .num input::-webkit-outer-spin-button,.num input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+  .num input:focus{outline:none;}
+  .num .unit{font-family:var(--mono);font-size:11px;color:var(--ink-3);padding:0 9px 0 5px;user-select:none;}
+
+  .twocol{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .twocol .row{margin:0;grid-template-columns:1fr;gap:5px;align-items:start;}
+  .twocol .row label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);}
+  .twocol .num{width:100%;}
+
+  .check{display:flex;align-items:center;gap:9px;margin:11px 0;cursor:pointer;user-select:none;}
+  .check input{position:absolute;opacity:0;width:0;height:0;}
+  .check .box{width:18px;height:18px;border-radius:4px;border:1.5px solid var(--line-strong);background:var(--surface);display:grid;place-items:center;flex:0 0 18px;transition:all .1s ease;}
+  .check input:checked + .box{background:var(--ink);border-color:var(--ink);}
+  .check input:checked + .box::after{content:"";width:5px;height:9px;border:solid #fff;border-width:0 2px 2px 0;transform:translateY(-1px) rotate(45deg);}
+  .check input:focus-visible + .box{outline:2px solid var(--accent);outline-offset:2px;}
+  .check span.lbl{font-size:13px;}
+
+  .helper{margin:10px 0 2px;padding:10px 11px;background:var(--surface-2);border:1px dashed var(--line-strong);border-radius:7px;}
+  .helper .h-title{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-2);margin-bottom:8px;}
+  .helper .h-row{display:grid;grid-template-columns:1fr auto;gap:9px;align-items:center;}
+  .helper select{font-family:var(--mono);font-size:12.5px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);width:100%;}
+  .helper select:focus{outline:2px solid var(--accent);outline-offset:-1px;}
+
+  .readout{margin-top:13px;font-family:var(--mono);font-size:12px;color:var(--ink-2);border-top:1px dotted var(--line-strong);padding-top:11px;display:grid;gap:6px;}
+  .readout .ln{display:flex;justify-content:space-between;gap:12px;}
+  .readout .ln b{color:var(--ink);font-weight:500;}
+  .readout .ln.flag b{color:var(--accent);}
+
+  .summary{margin:16px 20px 0;border:1px solid var(--ink);border-radius:8px;overflow:hidden;}
+  .summary .sh{background:var(--ink);color:#fff;font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;padding:9px 14px;display:flex;justify-content:space-between;align-items:center;}
+  .summary .sh .date{font-family:var(--mono);font-weight:400;letter-spacing:.02em;color:#c7cfd6;font-size:10.5px;}
+  .summary .sb{padding:12px 14px;display:grid;gap:8px;font-family:var(--mono);font-size:12.5px;}
+  .summary .sb .ln{display:flex;justify-content:space-between;gap:12px;color:var(--ink-2);}
+  .summary .sb .ln b{color:var(--ink);font-weight:600;}
+  .summary .sb .big{font-size:15px;border-top:1px solid var(--line);padding-top:9px;margin-top:2px;}
+  .summary .sb .sub{font-size:11.5px;color:var(--ink-2);opacity:.92;padding-left:12px;}
+  .summary .sb .sub span:first-child::before{content:"\2192";opacity:.45;margin-right:6px;}
+  .summary .sb .rule{border-top:1px dashed var(--line);height:0;margin:1px 0;padding:0;}
+
+  #stage .hole[data-cls="pass"]{cursor:pointer;}
+  .passctl{display:flex;align-items:center;gap:10px;justify-content:space-between;margin-top:10px;}
+  .passhint{font-size:11px;color:var(--ink-2);line-height:1.3;}
+  .ghostbtn{font-family:inherit;font-size:11.5px;padding:6px 11px;border:1px solid var(--line-strong);border-radius:6px;background:var(--surface-2);color:var(--ink);cursor:pointer;white-space:nowrap;}
+  .ghostbtn:hover:not(:disabled){border-color:var(--accent);color:var(--accent);}
+  .ghostbtn:disabled{opacity:.4;cursor:default;}
+
+  .selrow{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:10px;margin:9px 0;}
+  .selrow label{font-size:13px;color:var(--ink);}
+  .selrow select{font-family:var(--mono);font-size:12.5px;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink);width:100%;}
+  .selrow select:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:var(--accent);}
+
+  .segwrap{display:flex;align-items:center;gap:10px;margin:14px 0 4px;}
+  .segwrap .seglabel{font-size:13px;color:var(--ink);}
+  .seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:7px;overflow:hidden;margin-left:auto;}
+  .segbtn{font-family:var(--sans);font-size:12px;font-weight:600;padding:7px 12px;border:none;background:var(--surface);color:var(--ink-2);cursor:pointer;}
+  .segbtn + .segbtn{border-left:1px solid var(--line-strong);}
+  .segbtn[aria-pressed="true"]{background:var(--ink);color:#fff;}
+  .segbtn:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
+
+  ::-webkit-scrollbar{width:10px;height:10px;}
+  ::-webkit-scrollbar-thumb{background:#c4ccd4;border-radius:6px;border:2px solid var(--surface);}
+  ::-webkit-scrollbar-thumb:hover{background:#aab4bd;}
+
+  @media (max-width:880px){
+    .app{flex-direction:column;height:auto;}
+    .viewport-wrap{height:54vh;position:sticky;top:57px;z-index:10;border-bottom:1px solid var(--line);}
+    .panel{width:100%;flex:1 1 auto;border-left:none;}
+    .topbar{flex-wrap:wrap;gap:10px 14px;}
+    .topbar .partfield input{width:140px;}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <span class="mark">Ductbank Spacer<span class="dot">.</span>gen</span>
+    <span class="sub">HDPE / CNC contour</span>
+  </div>
+  <a class="btn ghost" href="/" style="text-decoration:none">&larr; Jobs</a>
+  <div class="spacer"></div>
+  <div class="partfield">
+    <label for="partName">Part</label>
+    <input id="partName" type="text" value="DSM-18 TELECOM" spellcheck="false">
+  </div>
+  <button class="btn ghost" id="btnSVG">Export SVG</button>
+  <button class="btn" id="btnDXF">Export DXF</button>
+  <button class="btn" id="btnSaveCut" style="background:var(--accent);border-color:var(--accent)">Save &amp; Cut path &rarr;</button>
+</div>
+
+<div class="app">
+  <div class="viewport-wrap">
+    <div class="vtools" role="toolbar" aria-label="View controls">
+      <button class="tgl" id="tFit">Fit</button>
+      <span class="sep"></span>
+      <button class="tgl" id="tGrid" aria-pressed="true">Grid</button>
+      <button class="tgl" id="tDims" aria-pressed="true">Dims</button>
+      <button class="tgl" id="tCall" aria-pressed="true">Callouts</button>
+    </div>
+    <div class="warnbox" id="warnbox"></div>
+    <svg id="stage" xmlns="http://www.w3.org/2000/svg"></svg>
+  </div>
+
+  <div class="panel">
+    <section class="group">
+      <div class="grouphead"><span class="idx">1</span><h2>Plate &amp; shape</h2></div>
+      <div class="twocol">
+        <div class="row"><label for="plateW">Width</label><div class="num"><input id="plateW" type="number" min="1" step="0.25" value="33"><span class="unit">in</span></div></div>
+        <div class="row"><label for="plateH">Height</label><div class="num"><input id="plateH" type="number" min="1" step="0.25" value="35"><span class="unit">in</span></div></div>
+      </div>
+      <div class="row" style="margin-top:9px;"><label for="cornerR">Corner radius</label>
+        <div class="num"><input id="cornerR" type="number" min="0" step="0.25" value="0"><span class="unit">in</span></div></div>
+      <label class="check" style="margin-top:14px;"><input type="checkbox" id="notchOn" checked><span class="box"></span><span class="lbl">Top grounding slot (half-circle)</span></label>
+      <div class="row"><label for="notchDia">Slot &Oslash;<span class="hint" id="notchHint">depth = &frac12; &times; &Oslash;</span></label>
+        <div class="num"><input id="notchDia" type="number" min="0.125" step="0.125" value="1"><span class="unit">in</span></div></div>
+    </section>
+
+    <section class="group">
+      <div class="grouphead"><span class="idx">2</span><h2>Conduit array</h2>
+        <span class="chip"><span class="key" style="background:var(--pvc)"></span>PVC</span></div>
+      <div class="twocol">
+        <div class="row"><label for="condCount">Conduits</label><div class="num"><input id="condCount" type="number" min="1" step="1" value="9"></div></div>
+        <div class="row"><label for="cols">Columns</label><div class="num"><input id="cols" type="number" min="1" step="1" value="3"></div></div>
+      </div>
+      <div class="row" style="margin-top:13px;"><label for="condDia">Hole &Oslash;</label>
+        <div class="num"><input id="condDia" type="number" min="0.25" step="0.125" value="6"><span class="unit">in</span></div></div>
+      <div class="helper">
+        <div class="h-title">Set hole &Oslash; from conduit (Sch-40 OD + clearance)</div>
+        <div class="h-row">
+          <select id="condSize">
+            <option value="">&mdash; trade size &mdash;</option>
+            <option value="1">1"</option><option value="1.25">1&frac14;"</option><option value="1.5">1&frac12;"</option>
+            <option value="2">2"</option><option value="2.5">2&frac12;"</option><option value="3">3"</option>
+            <option value="3.5">3&frac12;"</option><option value="4">4"</option><option value="5">5"</option><option value="6">6"</option>
+          </select>
+          <div class="num" style="width:108px;"><input id="condClear" type="number" min="0" step="0.0625" value="0.5"><span class="unit">clr</span></div>
+        </div>
+      </div>
+      <div class="segwrap"><span class="seglabel">Spacing</span>
+        <div class="seg" role="group" aria-label="Conduit spacing mode">
+          <button class="segbtn" id="modeFit" aria-pressed="false">Fit to plate</button>
+          <button class="segbtn" id="modeFix" aria-pressed="true">Fixed pitch</button>
+        </div>
+      </div>
+      <div class="row" id="fitRow" style="display:none;"><label for="minClear">Min edge clearance<span class="hint">hole edge &rarr; plate edge</span></label>
+        <div class="num"><input id="minClear" type="number" min="0" step="0.25" value="2"><span class="unit">in</span></div></div>
+      <div class="twocol" id="fixRows" style="margin-top:9px;">
+        <div class="row"><label for="pitchX">Pitch &mdash; horiz</label><div class="num"><input id="pitchX" type="number" min="0.25" step="0.25" value="10"><span class="unit">in</span></div></div>
+        <div class="row"><label for="pitchY">Pitch &mdash; vert</label><div class="num"><input id="pitchY" type="number" min="0.25" step="0.25" value="10"><span class="unit">in</span></div></div>
+      </div>
+      <div class="readout" id="condReadout"></div>
+    </section>
+
+    <section class="group">
+      <div class="grouphead"><span class="idx">3</span><h2>Concrete filling</h2>
+        <span class="chip"><span class="key" style="background:var(--pass)"></span>FILL</span></div>
+      <div class="selrow"><label for="passMode">Placement</label>
+        <select id="passMode">
+          <option value="auto" selected>Auto &mdash; grid between conduits &amp; rebar</option>
+          <option value="col">Center column</option>
+          <option value="row">Center row</option>
+        </select>
+      </div>
+      <div class="passctl">
+        <span class="passhint">Click any concrete hole in the drawing to remove it; click the dashed ghost to bring it back.</span>
+        <button type="button" id="passRestore" class="ghostbtn" disabled>Restore</button>
+      </div>
+      <div class="twocol" style="margin-top:9px;">
+        <div class="row" id="passCountRow" style="display:none;"><label for="passCount">Holes</label><div class="num"><input id="passCount" type="number" min="0" step="1" value="2"></div></div>
+        <div class="row"><label for="passDia">Hole &Oslash;</label><div class="num"><input id="passDia" type="number" min="0.25" step="0.125" value="1.5"><span class="unit">in</span></div></div>
+      </div>
+      <p class="note" id="passNote">Auto follows your schedule: a hole at every conduit-gap / rebar-line crossing, minus the four rebar corners &rarr; <b>(cols+1)(rows+1) &minus; 4</b>.</p>
+    </section>
+
+    <section class="group">
+      <div class="grouphead"><span class="idx">4</span><h2>Rebar</h2>
+        <span class="chip"><span class="key" style="background:var(--rebar)"></span>REBAR</span></div>
+      <div class="row"><label for="rebarDia">Hole &Oslash;</label>
+        <div class="num"><input id="rebarDia" type="number" min="0.125" step="0.0625" value="0.75"><span class="unit">in</span></div></div>
+      <div class="row"><label for="rebarInset">Inset from corner</label>
+        <div class="num"><input id="rebarInset" type="number" min="0.5" step="0.25" value="3.5"><span class="unit">in</span></div></div>
+      <label class="check"><input type="checkbox" id="rebarCorner" checked><span class="box"></span><span class="lbl">Corner holes (&times;4)</span></label>
+      <label class="check"><input type="checkbox" id="rebarMid"><span class="box"></span><span class="lbl">Mid-edge holes (&times;4)</span></label>
+    </section>
+
+    <section class="group">
+      <div class="grouphead"><span class="idx">5</span><h2>Material &amp; part</h2></div>
+      <div class="twocol">
+        <div class="row"><label for="matl">Material</label><div class="num" style="background:#fff;"><input id="matl" type="text" value="HDPE" style="text-align:left;font-size:12.5px;"></div></div>
+        <div class="row"><label for="thk">Thickness</label><div class="num"><input id="thk" type="number" min="0.0625" step="0.0625" value="0.75"><span class="unit">in</span></div></div>
+      </div>
+    </section>
+
+    <div class="summary">
+      <div class="sh"><span>Cut summary</span><span class="date" id="sumDate"></span></div>
+      <div class="sb" id="sumBody"></div>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+"use strict";
+(function(){
+  const PVC_OD = {1:1.315,1.25:1.660,1.5:1.900,2:2.375,2.5:2.875,3:3.500,3.5:4.000,4:4.500,5:5.563,6:6.625};
+  const CLS = {
+    conduit:{hex:"#2f6db0", aci:5, layer:"PVC_CONDUIT", label:"PVC conduit"},
+    pass:   {hex:"#cf962a", aci:2, layer:"PASSTHROUGH",  label:"Concrete fill"},
+    rebar:  {hex:"#c0392b", aci:1, layer:"REBAR",        label:"Rebar"},
+  };
+  const MIN_CONCRETE = 3.0;
+
+  const $ = id => document.getElementById(id);
+  const stage = $("stage"), tooltip = $("tooltip"), warnbox = $("warnbox");
+  const view = { s:1, ox:0, oy:0, fit:true };
+  const show = { grid:true, dims:true, call:true };
+  let spacingMode = "fixed";   // "fit" | "fixed"
+  const deletedPass = new Set();   // keys of concrete holes the user removed by clicking
+
+  function num(id, def){ const v = parseFloat($(id).value); return isFinite(v) ? v : def; }
+  function readParams(){
+    return {
+      plateW: Math.max(1, num("plateW",60)), plateH: Math.max(1, num("plateH",44)),
+      cornerR: Math.max(0, num("cornerR",0)),
+      notchOn:$("notchOn").checked, notchDia: Math.max(0.05, num("notchDia",1)),
+      condCount: Math.max(1, Math.round(num("condCount",16))),
+      cols: Math.max(1, Math.round(num("cols",4))),
+      condDia: Math.max(0.05, num("condDia",5)),
+      mode: spacingMode,
+      minClear: Math.max(0, num("minClear",7.5)),
+      pitchX: Math.max(0.05, num("pitchX",8)), pitchY: Math.max(0.05, num("pitchY",8)),
+      passDia: Math.max(0.05, num("passDia",1.5)), passCount: Math.max(0, Math.round(num("passCount",2))), passMode: $("passMode").value,
+      rebarDia: Math.max(0.05, num("rebarDia",0.75)), rebarInset: Math.max(0.1, num("rebarInset",3)),
+      rebarCorner:$("rebarCorner").checked, rebarMid:$("rebarMid").checked,
+      matl: $("matl").value.trim() || "HDPE", thk: Math.max(0.01, num("thk",0.75)),
+      part: $("partName").value.trim() || "SPACER",
+    };
+  }
+
+  function computeModel(p){
+    const W=p.plateW, H=p.plateH, dia=p.condDia;
+    const cols=Math.max(1,p.cols), count=Math.max(1,p.condCount);
+    const rows=Math.max(1, Math.ceil(count/cols));
+    const lastCount = count - cols*(rows-1);   // conduits in the top (last) row
+
+    // column / row coordinate arrays + pitch
+    let colX=[], rowY=[], pitchX=0, pitchY=0;
+    if(p.mode==="fixed"){
+      pitchX=p.pitchX; pitchY=p.pitchY;
+      const x0=(W-(cols-1)*pitchX)/2, y0=(H-(rows-1)*pitchY)/2;
+      for(let i=0;i<cols;i++) colX.push(x0+i*pitchX);
+      for(let j=0;j<rows;j++) rowY.push(y0+j*pitchY);
+    } else {                                   // fit to plate
+      const c=p.minClear;
+      pitchX = cols>1 ? (W-2*c-dia)/(cols-1) : 0;
+      pitchY = rows>1 ? (H-2*c-dia)/(rows-1) : 0;
+      const x0 = cols>1 ? c+dia/2 : W/2, y0 = rows>1 ? c+dia/2 : H/2;
+      for(let i=0;i<cols;i++) colX.push(cols>1 ? x0+i*pitchX : W/2);
+      for(let j=0;j<rows;j++) rowY.push(rows>1 ? y0+j*pitchY : H/2);
+    }
+
+    // place conduits row-major; partial last row centered on the column grid
+    const conduit=[], occ=new Set();
+    for(let j=0;j<rows;j++){
+      const inRow = (j<rows-1) ? cols : lastCount;
+      const start = (inRow<cols) ? Math.floor((cols-inRow)/2) : 0;
+      for(let k=0;k<inRow;k++){ const i=start+k; conduit.push({x:colX[i], y:rowY[j], d:dia, cls:"conduit"}); occ.add(i+","+j); }
+    }
+    const cxs=conduit.map(c=>c.x), cys=conduit.map(c=>c.y);
+    const minX=Math.min(...cxs), maxX=Math.max(...cxs), minY=Math.min(...cys), maxY=Math.max(...cys);
+    const clrL=minX-dia/2, clrR=W-(maxX+dia/2), clrB=minY-dia/2, clrT=H-(maxY+dia/2);
+    const ri = Math.min(p.rebarInset, W/2-0.01, H/2-0.01);
+
+    // inner lattice lines = midpoints between adjacent conduits
+    const innerX=[], innerY=[];
+    for(let i=0;i<cols-1;i++) innerX.push((colX[i]+colX[i+1])/2);
+    for(let j=0;j<rows-1;j++) innerY.push((rowY[j]+rowY[j+1])/2);
+
+    // concrete filling holes
+    const pass=[];
+    const ccx=(minX+maxX)/2, ccy=(minY+maxY)/2, n=Math.max(0,p.passCount), pd=p.passDia;
+    if(p.passMode==="auto"){
+      // grid of (rebar lines) + (conduit-gap lines); a hole at every node except the 4 corners (= rebar)
+      const xs=[ri].concat(innerX, [W-ri]), ys=[ri].concat(innerY, [H-ri]);
+      const lx=xs.length-1, ly=ys.length-1;
+      for(let xi=0;xi<xs.length;xi++) for(let yi=0;yi<ys.length;yi++){
+        const corner=(xi===0||xi===lx)&&(yi===0||yi===ly);
+        if(!corner) pass.push({x:xs[xi], y:ys[yi], d:pd, cls:"pass"});
+      }
+    } else if(n>0 && p.passMode==="row"){          // horizontal line through conduit centerline
+      for(let k=0;k<n;k++) pass.push({x:W*(k+0.5)/n, y:ccy, d:pd, cls:"pass"});
+    } else if(n>0){                                 // "col": vertical line between conduits
+      for(let k=0;k<n;k++) pass.push({x:ccx, y:H*(k+0.5)/n, d:pd, cls:"pass"});
+    }
+
+    const rebar=[];
+    if(p.rebarCorner) rebar.push({x:ri,y:ri,d:p.rebarDia,cls:"rebar"},{x:W-ri,y:ri,d:p.rebarDia,cls:"rebar"},{x:ri,y:H-ri,d:p.rebarDia,cls:"rebar"},{x:W-ri,y:H-ri,d:p.rebarDia,cls:"rebar"});
+    if(p.rebarMid) rebar.push({x:W/2,y:ri,d:p.rebarDia,cls:"rebar"},{x:W/2,y:H-ri,d:p.rebarDia,cls:"rebar"},{x:ri,y:H/2,d:p.rebarDia,cls:"rebar"},{x:W-ri,y:H/2,d:p.rebarDia,cls:"rebar"});
+
+    const cr = Math.min(p.cornerR, W/2, H/2);
+    const nr = p.notchOn ? Math.max(0, Math.min(p.notchDia/2, W/2-cr-0.01)) : 0;
+    pass.forEach(h=>{ h.key=h.x.toFixed(3)+","+h.y.toFixed(3); h.del=deletedPass.has(h.key); });
+    const passActive = pass.filter(h=>!h.del);
+    const holes = conduit.concat(passActive, rebar);
+
+    let perim = 2*(W+H);
+    if(cr>0) perim += 4*(Math.PI*cr/2 - 2*cr);
+    if(nr>0) perim += (Math.PI*nr - 2*nr);
+    const cutFor = arr => arr.reduce((t,h)=> t + Math.PI*h.d, 0);
+    const cutConduit=cutFor(conduit), cutPass=cutFor(passActive), cutRebar=cutFor(rebar);
+    const cutHoles=cutConduit+cutPass+cutRebar, cutTotal=perim+cutHoles;
+
+    return { p, W, H, cr, nr, conduit, pass, passActive, rebar, holes,
+      grid:{cols, rows, count, lastCount, pitchX, pitchY, clrL, clrR, clrT, clrB,
+            minClr:Math.min(clrL,clrR,clrT,clrB)},
+      counts:{conduit:conduit.length, pass:passActive.length, passDeleted:pass.length-passActive.length, rebar:rebar.length, total:holes.length},
+      bom:{ areaSqIn:W*H, areaSqFt:W*H/144, perim, cutOutline:perim, cutConduit, cutPass, cutRebar, cutHoles, cutTotal,
+            gapX: cols>1 ? pitchX-dia : NaN, gapY: rows>1 ? pitchY-dia : NaN } };
+  }
+
+  function outlinePathEng(M){
+    const {W,H,cr,nr}=M, P=[];
+    const arc=(cx,cy,a0,a1,n)=>{for(let k=0;k<=n;k++){const a=a0+(a1-a0)*k/n;P.push([cx+cr*Math.cos(a),cy+cr*Math.sin(a)]);}};
+    if(cr<=0){ P.push([0,0],[W,0],[W,H]); }
+    else{ P.push([cr,0],[W-cr,0]); arc(W-cr,cr,-Math.PI/2,0,10); P.push([W,H-cr]); arc(W-cr,H-cr,0,Math.PI/2,10); }
+    if(nr>0){ P.push([W/2+nr,H]); for(let k=1;k<18;k++){const th=Math.PI*k/18; P.push([W/2+nr*Math.cos(th), H-nr*Math.sin(th)]);} P.push([W/2-nr,H]); }
+    if(cr<=0){ P.push([0,H]); }
+    else{ P.push([cr,H]); arc(cr,H-cr,Math.PI/2,Math.PI,10); P.push([0,cr]); arc(cr,cr,Math.PI,1.5*Math.PI,10); }
+    return "M"+P.map(pt=>pt[0].toFixed(3)+" "+pt[1].toFixed(3)).join(" L")+" Z";
+  }
+
+  function fitView(M){
+    const r = stage.getBoundingClientRect();
+    const pad = Math.max(56, Math.min(r.width,r.height)*0.12);
+    const s = Math.max(0.1, Math.min((r.width-2*pad)/M.W, (r.height-2*pad)/M.H));
+    view.s=s; view.ox=(r.width - M.W*s)/2; view.oy=(r.height + M.H*s)/2; view.fit=true;
+  }
+
+  function buildSVG(M, opt){
+    const {w,h,forExport}=opt, s=view.s, ox=view.ox, oy=view.oy;
+    const px=(x,y)=>[ox+x*s, oy-y*s];
+    const fontMono = forExport ? "ui-monospace, Menlo, Consolas, monospace" : "var(--mono)";
+    const o=[];
+    o.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" font-family="${fontMono}">`);
+    if(forExport) o.push(`<rect x="0" y="0" width="${w}" height="${h}" fill="#fcfcfa"/>`);
+
+    if(show.grid){
+      const stepMaj=12; let stepMin = (s>7?1:(s>3?2:6));
+      const exTop=oy/s, exBot=(oy-h)/s, eyA=Math.min(exTop,exBot), eyB=Math.max(exTop,exBot);
+      const exL=(0-ox)/s, exR=(w-ox)/s;
+      while((exR-exL)/stepMin > 360 || (eyB-eyA)/stepMin > 360) stepMin*=2;
+      const x0=Math.floor(exL/stepMin)*stepMin, x1=Math.ceil(exR/stepMin)*stepMin;
+      const y0=Math.floor(eyA/stepMin)*stepMin, y1=Math.ceil(eyB/stepMin)*stepMin;
+      const g=[];
+      for(let gx=x0; gx<=x1+1e-6; gx+=stepMin){ const a=px(gx,y0),b=px(gx,y1),maj=Math.abs(gx%stepMaj)<1e-6;
+        g.push(`<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}" stroke="${maj?'#cfd6dc':'#e6eaed'}" stroke-width="${maj?1:0.6}"/>`);}
+      for(let gy=y0; gy<=y1+1e-6; gy+=stepMin){ const a=px(x0,gy),b=px(x1,gy),maj=Math.abs(gy%stepMaj)<1e-6;
+        g.push(`<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}" stroke="${maj?'#cfd6dc':'#e6eaed'}" stroke-width="${maj?1:0.6}"/>`);}
+      o.push(`<g>${g.join("")}</g>`);
+    }
+
+    o.push(`<g transform="translate(${ox} ${oy}) scale(${s} ${-s})">`);
+    o.push(`<path d="${outlinePathEng(M)}" fill="#ffffff" fill-opacity="0.55" stroke="#161a1e" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>`);
+    const holeSVG=(hh)=>{ const c=CLS[hh.cls];
+      return `<circle class="hole" data-cls="${hh.cls}" data-d="${hh.d}" data-x="${hh.x.toFixed(3)}" data-y="${hh.y.toFixed(3)}" cx="${hh.x}" cy="${hh.y}" r="${hh.d/2}" fill="${c.hex}" fill-opacity="0.16" stroke="${c.hex}" stroke-width="1.6" vector-effect="non-scaling-stroke"/>`; };
+    const ghostSVG=(hh)=>
+      `<circle class="hole" data-cls="${hh.cls}" data-d="${hh.d}" data-x="${hh.x.toFixed(3)}" data-y="${hh.y.toFixed(3)}" cx="${hh.x}" cy="${hh.y}" r="${hh.d/2}" fill="none" stroke="#9aa3ab" stroke-width="1.1" stroke-dasharray="2.4 2.4" vector-effect="non-scaling-stroke"/>`;
+    M.conduit.forEach(hh=>o.push(holeSVG(hh)));
+    M.pass.forEach(hh=>{ if(hh.del){ if(!forExport) o.push(ghostSVG(hh)); } else o.push(holeSVG(hh)); });
+    M.rebar.forEach(hh=>o.push(holeSVG(hh)));
+    M.conduit.forEach(hh=>{ const r=Math.min(hh.d/2*0.5,1.4);
+      o.push(`<path d="M ${hh.x-r} ${hh.y} L ${hh.x+r} ${hh.y} M ${hh.x} ${hh.y-r} L ${hh.x} ${hh.y+r}" stroke="#2f6db0" stroke-width="0.8" vector-effect="non-scaling-stroke" opacity="0.55"/>`);});
+    o.push(`</g>`);
+
+    if(show.dims){
+      const c="#161a1e", off=26;
+      const a=px(0,0), b=px(M.W,0), yb=Math.max(a[1],b[1])+off;
+      o.push(dimLine(a[0],yb,b[0],yb,M.W.toFixed(2)+'"',"h",c,a[1],b[1]));
+      const e=px(0,0), f=px(0,M.H), xl=Math.min(e[0],f[0])-off;
+      o.push(dimLine(xl,e[1],xl,f[1],M.H.toFixed(2)+'"',"v",c,e[0],f[0]));
+    }
+
+    if(show.call){
+      const reps=[];
+      if(M.conduit[0]) reps.push({h:M.conduit[0],side:"tr"});
+      if(M.passActive[0]) reps.push({h:M.passActive[0],side:"l"});
+      if(M.rebar[0])   reps.push({h:M.rebar[0],side:"bl"});
+      reps.forEach(rp=>{ const c=CLS[rp.h.cls], ctr=px(rp.h.x,rp.h.y), rpx=rp.h.d/2*s; let ex,ey,sx,anchor;
+        if(rp.side==="tr"){ ex=ctr[0]+rpx*0.71; ey=ctr[1]-rpx*0.71; sx=ex+30; ey-=18; anchor="start"; }
+        else if(rp.side==="l"){ ex=ctr[0]-rpx; ey=ctr[1]; sx=ex-26; anchor="end"; }
+        else { ex=ctr[0]-rpx*0.71; ey=ctr[1]+rpx*0.71; sx=ex-26; ey+=14; anchor="end"; }
+        o.push(`<line x1="${ctr[0].toFixed(1)}" y1="${ctr[1].toFixed(1)}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}" stroke="${c.hex}" stroke-width="1"/>`);
+        o.push(`<line x1="${ex.toFixed(1)}" y1="${ey.toFixed(1)}" x2="${sx.toFixed(1)}" y2="${ey.toFixed(1)}" stroke="${c.hex}" stroke-width="1"/>`);
+        o.push(`<text x="${(anchor==='start'?sx+3:sx-3).toFixed(1)}" y="${(ey-4).toFixed(1)}" fill="${c.hex}" font-size="11.5" font-weight="700" text-anchor="${anchor}">&#216;${rp.h.d.toFixed(2)} <tspan font-weight="400">${c.label}</tspan></text>`);
+      });
+    }
+
+    // legend
+    {
+      const items=[["conduit",M.counts.conduit],["pass",M.counts.pass],["rebar",M.counts.rebar]].filter(it=>it[1]>0);
+      if(items.length){ const lx=16, lh=20, bw=176, bh=14+items.length*lh, ly=h-16;
+        o.push(`<g transform="translate(${lx} ${ly-bh})">`);
+        o.push(`<rect x="0" y="0" width="${bw}" height="${bh}" rx="7" fill="#ffffff" fill-opacity="${forExport?1:0.9}" stroke="#d5dce3"/>`);
+        items.forEach((it,i)=>{ const c=CLS[it[0]], yy=18+i*lh;
+          o.push(`<circle cx="16" cy="${yy-4}" r="5.5" fill="${c.hex}" fill-opacity="0.16" stroke="${c.hex}" stroke-width="1.6"/>`);
+          o.push(`<text x="30" y="${yy}" font-size="11.5" fill="#161a1e">${c.label}</text>`);
+          o.push(`<text x="${bw-12}" y="${yy}" font-size="11.5" font-weight="700" fill="#161a1e" text-anchor="end">${it[1]}</text>`);});
+        o.push(`</g>`);
+      }
+    }
+
+    // title block
+    {
+      const p=M.p, bw=248, bh=104, bx=w-bw-16, by=h-bh-16, pad=11;
+      const rows=[["PART",p.part],["MATL",`${p.matl}  ${p.thk}"`],["SIZE",`${M.W.toFixed(2)} \u00D7 ${M.H.toFixed(2)} in`],
+        ["HOLES",`${M.counts.total}  (\u00D8${p.condDia}\u00B7${p.passDia}\u00B7${p.rebarDia})`],
+        ["CUT",`${M.bom.cutTotal.toFixed(1)} in / ${(M.bom.cutTotal/12).toFixed(1)} ft`]];
+      o.push(`<g transform="translate(${bx} ${by})">`);
+      o.push(`<rect x="0" y="0" width="${bw}" height="${bh}" rx="2" fill="#ffffff" fill-opacity="${forExport?1:0.94}" stroke="#161a1e" stroke-width="1.2"/>`);
+      o.push(`<rect x="0" y="0" width="${bw}" height="20" fill="#161a1e"/>`);
+      o.push(`<text x="${pad}" y="14" font-size="11" font-weight="700" letter-spacing="0.12em" fill="#ffffff">DUCTBANK SPACER</text>`);
+      o.push(`<text x="${bw-pad}" y="14" font-size="9.5" fill="#c7cfd6" text-anchor="end">${dateStr()}</text>`);
+      rows.forEach((r,i)=>{ const yy=36+i*15.5;
+        o.push(`<text x="${pad}" y="${yy}" font-size="9" font-weight="700" letter-spacing="0.08em" fill="#8a96a0">${r[0]}</text>`);
+        o.push(`<text x="${pad+44}" y="${yy}" font-size="11" fill="#161a1e">${escapeXML(r[1])}</text>`);});
+      o.push(`</g>`);
+    }
+
+    o.push(`</svg>`);
+    return o.join("");
+  }
+
+  function dimLine(x1,y1,x2,y2,txt,dir,color,ext1,ext2){
+    const t=5, g=[];
+    g.push(`<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${color}" stroke-width="1"/>`);
+    if(dir==="h"){
+      g.push(`<line x1="${x1.toFixed(1)}" y1="${ext1.toFixed(1)}" x2="${x1.toFixed(1)}" y2="${(y1+4).toFixed(1)}" stroke="${color}" stroke-width="0.8"/>`);
+      g.push(`<line x1="${x2.toFixed(1)}" y1="${ext2.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${(y2+4).toFixed(1)}" stroke="${color}" stroke-width="0.8"/>`);
+      g.push(tickMark(x1,y1,t,false),tickMark(x2,y2,t,false));
+      g.push(`<rect x="${((x1+x2)/2-26).toFixed(1)}" y="${(y1-9).toFixed(1)}" width="52" height="16" fill="#fcfcfa"/>`);
+      g.push(`<text x="${((x1+x2)/2).toFixed(1)}" y="${(y1+4).toFixed(1)}" font-size="12" font-weight="700" fill="${color}" text-anchor="middle">${txt}</text>`);
+    } else {
+      g.push(`<line x1="${ext1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${(x1-4).toFixed(1)}" y2="${y1.toFixed(1)}" stroke="${color}" stroke-width="0.8"/>`);
+      g.push(`<line x1="${ext2.toFixed(1)}" y1="${y2.toFixed(1)}" x2="${(x2-4).toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${color}" stroke-width="0.8"/>`);
+      g.push(tickMark(x1,y1,t,true),tickMark(x2,y2,t,true));
+      g.push(`<g transform="translate(${(x1-6).toFixed(1)} ${((y1+y2)/2).toFixed(1)}) rotate(-90)"><rect x="-26" y="-9" width="52" height="16" fill="#fcfcfa"/><text x="0" y="4" font-size="12" font-weight="700" fill="${color}" text-anchor="middle">${txt}</text></g>`);
+    }
+    return g.join("");
+  }
+  function tickMark(x,y,t,vert){
+    return vert ? `<line x1="${(x-t).toFixed(1)}" y1="${(y-t).toFixed(1)}" x2="${(x+t).toFixed(1)}" y2="${(y+t).toFixed(1)}" stroke="#161a1e" stroke-width="1.4"/>`
+                : `<line x1="${(x-t).toFixed(1)}" y1="${(y+t).toFixed(1)}" x2="${(x+t).toFixed(1)}" y2="${(y-t).toFixed(1)}" stroke="#161a1e" stroke-width="1.4"/>`;
+  }
+
+  function buildDXF(M){
+    const f=n=>(Math.round(n*1e6)/1e6).toString();
+    const L=[], E=(c,v)=>{L.push(String(c)); L.push(String(v));};
+    E(0,"SECTION");E(2,"HEADER");E(9,"$ACADVER");E(1,"AC1015");E(9,"$INSUNITS");E(70,1);
+    E(9,"$INSBASE");E(10,"0.0");E(20,"0.0");E(30,"0.0");E(0,"ENDSEC");
+    E(0,"SECTION");E(2,"TABLES");
+    E(0,"TABLE");E(2,"LTYPE");E(70,1);E(0,"LTYPE");E(2,"CONTINUOUS");E(70,0);E(3,"Solid line");E(72,65);E(73,0);E(40,"0.0");E(0,"ENDTAB");
+    const layers=[["OUTLINE",7],["PVC_CONDUIT",CLS.conduit.aci],["PASSTHROUGH",CLS.pass.aci],["REBAR",CLS.rebar.aci]];
+    E(0,"TABLE");E(2,"LAYER");E(70,layers.length);
+    layers.forEach(([nm,col])=>{E(0,"LAYER");E(2,nm);E(70,0);E(62,col);E(6,"CONTINUOUS");});
+    E(0,"ENDTAB");E(0,"ENDSEC");
+    E(0,"SECTION");E(2,"ENTITIES");
+    const W=M.W,H=M.H,cr=M.cr,nr=M.nr;
+    const line=(x1,y1,x2,y2)=>{E(0,"LINE");E(8,"OUTLINE");E(62,7);E(10,f(x1));E(20,f(y1));E(30,"0.0");E(11,f(x2));E(21,f(y2));E(31,"0.0");};
+    const arc=(cx,cy,r,a0,a1)=>{E(0,"ARC");E(8,"OUTLINE");E(62,7);E(10,f(cx));E(20,f(cy));E(30,"0.0");E(40,f(r));E(50,f(a0));E(51,f(a1));};
+    if(cr<=0){
+      line(0,0,W,0); line(W,0,W,H); line(0,H,0,0);
+      if(nr>0){ line(W,H,W/2+nr,H); arc(W/2,H,nr,180,360); line(W/2-nr,H,0,H); } else line(W,H,0,H);
+    } else {
+      line(cr,0,W-cr,0); arc(W-cr,cr,cr,270,360); line(W,cr,W,H-cr); arc(W-cr,H-cr,cr,0,90);
+      if(nr>0){ line(W-cr,H,W/2+nr,H); arc(W/2,H,nr,180,360); line(W/2-nr,H,cr,H); } else line(W-cr,H,cr,H);
+      arc(cr,H-cr,cr,90,180); line(0,H-cr,0,cr); arc(cr,cr,cr,180,270);
+    }
+    M.holes.forEach(hh=>{const c=CLS[hh.cls];E(0,"CIRCLE");E(8,c.layer);E(62,c.aci);E(10,f(hh.x));E(20,f(hh.y));E(30,"0.0");E(40,f(hh.d/2));});
+    E(0,"ENDSEC");E(0,"EOF");
+    return L.join("\r\n")+"\r\n";
+  }
+
+  function dateStr(){ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+  function escapeXML(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+  let M=null;
+  function render(refit){
+    const p=readParams(); M=computeModel(p);
+    if(refit || view.fit) fitView(M);
+    const r=stage.getBoundingClientRect();
+    stage.innerHTML = buildSVG(M,{w:Math.max(50,r.width)||800, h:Math.max(50,r.height)||600, forExport:false});
+    updateReadouts(M); updateWarnings(M);
+  }
+
+  function gapStr(v){ return isNaN(v) ? "&mdash;" : v.toFixed(2)+" in"; }
+  function fmtLen(v){ return `${v.toFixed(1)} in &middot; ${(v/12).toFixed(1)} ft`; }
+  function updateReadouts(M){
+    const b=M.bom, g=M.grid;
+    const fx=!isNaN(b.gapX)&&b.gapX<MIN_CONCRETE, fy=!isNaN(b.gapY)&&b.gapY<MIN_CONCRETE;
+    const empties = g.cols*g.rows - g.count;
+    const gridTxt = `${g.cols}\u00D7${g.rows}` + (empties>0?` (${empties} blank)`:``);
+    $("condReadout").innerHTML =
+      `<div class="ln"><span>Grid</span><b>${gridTxt} \u00B7 ${g.count} conduits</b></div>`+
+      `<div class="ln"><span>Pitch (computed) H \u00D7 V</span><b>${g.pitchX.toFixed(2)} \u00D7 ${g.pitchY.toFixed(2)} in</b></div>`+
+      `<div class="ln ${fx?'flag':''}"><span>Concrete between ducts \u2014 horiz</span><b>${gapStr(b.gapX)}</b></div>`+
+      `<div class="ln ${fy?'flag':''}"><span>Concrete between ducts \u2014 vert</span><b>${gapStr(b.gapY)}</b></div>`+
+      `<div class="ln ${g.minClr<0?'flag':''}"><span>Edge clearance (min)</span><b>${g.minClr.toFixed(2)} in</b></div>`;
+    $("sumDate").textContent = dateStr();
+    $("sumBody").innerHTML =
+      `<div class="ln"><span>Plate</span><b>${M.W.toFixed(2)} \u00D7 ${M.H.toFixed(2)} in</b></div>`+
+      `<div class="ln"><span>Sheet area</span><b>${b.areaSqIn.toFixed(0)} in&sup2; \u00B7 ${b.areaSqFt.toFixed(2)} ft&sup2;</b></div>`+
+      `<div class="ln"><span>PVC conduit</span><b>${M.counts.conduit} \u00D7 \u00D8${M.p.condDia}</b></div>`+
+      `<div class="ln"><span>Concrete fill</span><b>${M.counts.pass} \u00D7 \u00D8${M.p.passDia}</b></div>`+
+      `<div class="ln"><span>Rebar</span><b>${M.counts.rebar} \u00D7 \u00D8${M.p.rebarDia}</b></div>`+
+      (M.nr>0?`<div class="ln"><span>Grounding slot</span><b>\u00D8${(M.nr*2).toFixed(2)} \u00B7 ${M.nr.toFixed(2)} deep</b></div>`:``)+
+      (M.counts.passDeleted>0?`<div class="ln"><span>Concrete removed</span><b>${M.counts.passDeleted}</b></div>`:``)+
+      `<div class="ln big"><span>Total holes</span><b>${M.counts.total}</b></div>`+
+      `<div class="ln sub"><span>Outside (plate edge${M.nr>0?' + slot':''})</span><b>${fmtLen(b.cutOutline)}</b></div>`+
+      `<div class="ln sub"><span>Conduit \u00D7${M.counts.conduit}</span><b>${fmtLen(b.cutConduit)}</b></div>`+
+      `<div class="ln sub"><span>Concrete \u00D7${M.counts.pass}</span><b>${fmtLen(b.cutPass)}</b></div>`+
+      `<div class="ln sub"><span>Rebar \u00D7${M.counts.rebar}</span><b>${fmtLen(b.cutRebar)}</b></div>`+
+      `<div class="ln sub"><span>All holes</span><b>${fmtLen(b.cutHoles)}</b></div>`+
+      `<div class="ln big"><span>Total cut length</span><b>${fmtLen(b.cutTotal)}</b></div>`;
+    const nDel=M.counts.passDeleted, rb=$("passRestore");
+    if(rb){ rb.disabled = nDel===0; rb.textContent = nDel>0 ? `Restore (${nDel})` : "Restore"; }
+  }
+
+  function updateWarnings(M){
+    const b=M.bom, g=M.grid, msgs=[];
+    if(g.minClr < -1e-6) msgs.push("Conduits exceed the plate \u2014 enlarge plate or reduce count / columns / pitch.");
+    if((!isNaN(b.gapX)&&b.gapX<=0) || (!isNaN(b.gapY)&&b.gapY<=0)) msgs.push("Conduits overlap.");
+    else if((!isNaN(b.gapX)&&b.gapX<MIN_CONCRETE) || (!isNaN(b.gapY)&&b.gapY<MIN_CONCRETE)) msgs.push("Under "+MIN_CONCRETE+"\u2033 concrete between ducts.");
+    if(M.p.rebarCorner && M.p.rebarInset*2 >= Math.min(M.W,M.H)) msgs.push("Rebar inset too large for plate.");
+    let cOver=false;
+    outer: for(const c of M.passActive){ for(const cd of M.conduit){ if(Math.hypot(c.x-cd.x,c.y-cd.y) < (c.d+cd.d)/2 - 1e-6){ cOver=true; break outer; } } }
+    if(cOver) msgs.push("Concrete hole overlaps a conduit \u2014 adjust spacing or rebar inset.");
+    if(msgs.length){ warnbox.innerHTML="<span>\u26A0</span><span>"+msgs.join(" \u00B7 ")+"</span>"; warnbox.classList.add("show"); }
+    else warnbox.classList.remove("show");
+  }
+
+  function download(name, text, mime){
+    const blob=new Blob([text],{type:mime}), url=URL.createObjectURL(blob), a=document.createElement("a");
+    a.href=url; a.download=name; document.body.appendChild(a); a.click();
+    setTimeout(()=>{URL.revokeObjectURL(url); a.remove();},100);
+  }
+  function safeName(){ return (readParams().part||"spacer").replace(/[^\w.-]+/g,"_"); }
+
+  $("btnDXF").addEventListener("click", ()=>{ render(false); download(safeName()+".dxf", buildDXF(M), "application/dxf"); });
+  $("btnSVG").addEventListener("click", ()=>{
+    const EW=1600, EH=1100, save={...view}, pad=120;
+    const s=Math.max(0.1,Math.min((EW-2*pad)/M.W,(EH-2*pad)/M.H));
+    view.s=s; view.ox=(EW-M.W*s)/2; view.oy=(EH+M.H*s)/2;
+    const svg=buildSVG(M,{w:EW,h:EH,forExport:true});
+    Object.assign(view,save); render(false);
+    download(safeName()+".svg", svg, "image/svg+xml");
+  });
+
+  $("tFit").addEventListener("click", ()=>{ view.fit=true; render(true); });
+  [["tGrid","grid"],["tDims","dims"],["tCall","call"]].forEach(([id,key])=>{
+    $(id).addEventListener("click", ()=>{ show[key]=!show[key]; $(id).setAttribute("aria-pressed",show[key]); render(false); });
+  });
+
+  let drag=null;
+  stage.addEventListener("pointerdown",(e)=>{
+    if(e.target.closest(".hole")) return;
+    drag={x:e.clientX,y:e.clientY,ox:view.ox,oy:view.oy}; view.fit=false;
+    stage.classList.add("panning"); stage.setPointerCapture(e.pointerId);
+  });
+  stage.addEventListener("pointermove",(e)=>{
+    if(drag){ view.ox=drag.ox+(e.clientX-drag.x); view.oy=drag.oy+(e.clientY-drag.y); render(false); return; }
+    const t=e.target.closest(".hole");
+    if(t){ const c=CLS[t.dataset.cls];
+      tooltip.style.display="block"; tooltip.style.left=(e.clientX+14)+"px"; tooltip.style.top=(e.clientY+14)+"px";
+      tooltip.innerHTML='<span class="swatch" style="background:'+c.hex+'"></span>'+c.label+' \u00B7 \u00D8'+(+t.dataset.d).toFixed(2)+'<br>X '+(+t.dataset.x).toFixed(2)+' &nbsp; Y '+(+t.dataset.y).toFixed(2);
+    } else tooltip.style.display="none";
+  });
+  const endDrag=()=>{ if(drag){drag=null; stage.classList.remove("panning");} };
+  stage.addEventListener("pointerup",endDrag);
+  stage.addEventListener("pointercancel",endDrag);
+  stage.addEventListener("pointerleave",()=>{ tooltip.style.display="none"; });
+  stage.addEventListener("wheel",(e)=>{
+    e.preventDefault(); view.fit=false;
+    const r=stage.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+    const k=Math.exp(-e.deltaY*0.0014), ns=Math.max(0.3,Math.min(60,view.s*k));
+    const wx=(mx-view.ox)/view.s, wy=(view.oy-my)/view.s;
+    view.s=ns; view.ox=mx-wx*ns; view.oy=my+wy*ns; render(false);
+  },{passive:false});
+
+  // click a concrete hole to remove it; click its ghost to restore it
+  stage.addEventListener("click",(e)=>{
+    const t=e.target.closest(".hole");
+    if(!t || t.dataset.cls!=="pass") return;
+    const key=t.dataset.x+","+t.dataset.y;
+    if(deletedPass.has(key)) deletedPass.delete(key); else deletedPass.add(key);
+    render(false);
+  });
+
+  function applyCondSize(){
+    const v=$("condSize").value; if(!v) return;
+    const od=PVC_OD[parseFloat(v)]; if(od==null) return;
+    const clr=Math.max(0,num("condClear",0.5));
+    $("condDia").value = (Math.round((od+clr)*1000)/1000);
+    render(false);
+  }
+  $("condSize").addEventListener("change", applyCondSize);
+  $("condClear").addEventListener("input", ()=>{ if($("condSize").value) applyCondSize(); });
+
+  function setMode(mode){
+    spacingMode = mode;
+    $("modeFit").setAttribute("aria-pressed", mode==="fit");
+    $("modeFix").setAttribute("aria-pressed", mode==="fixed");
+    $("fitRow").style.display  = mode==="fit"  ? "" : "none";
+    $("fixRows").style.display = mode==="fixed" ? "grid" : "none";
+    render(false);
+  }
+  $("modeFit").addEventListener("click", ()=>setMode("fit"));
+  $("modeFix").addEventListener("click", ()=>setMode("fixed"));
+
+  ["plateW","plateH","cornerR","notchDia","condCount","cols","condDia","minClear","pitchX","pitchY","passDia","passCount","rebarDia","rebarInset","thk","matl","partName"]
+    .forEach(id=> $(id).addEventListener("input", ()=>render(false)));
+  ["notchOn","rebarCorner","rebarMid"]
+    .forEach(id=> $(id).addEventListener("change", ()=>render(false)));
+  function syncPassMode(){ $("passCountRow").style.display = ($("passMode").value==="auto") ? "none" : ""; }
+  $("passMode").addEventListener("change", ()=>{ syncPassMode(); render(false); });
+  $("passRestore").addEventListener("click", ()=>{ if(deletedPass.size){ deletedPass.clear(); render(false); } });
+
+  let rt; window.addEventListener("resize", ()=>{ clearTimeout(rt); rt=setTimeout(()=>render(view.fit), 120); });
+
+  syncPassMode();
+  render(true);
+
+  /* ---- job-planner integration (dashboard -> spacer -> cut path) ---- */
+  const jobId = new URLSearchParams(location.search).get("job");
+  const PARAM_IDS = ["plateW","plateH","cornerR","notchOn","notchDia","condCount","cols","condDia","condSize","condClear","minClear","pitchX","pitchY","passMode","passCount","passDia","rebarDia","rebarInset","rebarCorner","rebarMid","matl","thk","partName"];
+
+  function collectParams(){
+    const inputs={};
+    PARAM_IDS.forEach(id=>{ const el=$(id); if(!el) return; inputs[id]=(el.type==="checkbox")?el.checked:el.value; });
+    return { inputs, spacingMode, deletedPass:[...deletedPass] };
+  }
+  function restoreParams(prm){
+    if(!prm||!prm.inputs) return;
+    Object.keys(prm.inputs).forEach(id=>{ const el=$(id); if(!el) return; const v=prm.inputs[id]; if(el.type==="checkbox") el.checked=!!v; else el.value=v; });
+    if(prm.spacingMode) setMode(prm.spacingMode);
+    deletedPass.clear(); (prm.deletedPass||[]).forEach(k=>deletedPass.add(k));
+    syncPassMode(); render(true);
+  }
+
+  async function jpFetch(path,opts){ const r=await fetch(path,opts); if(!r.ok){ let m="HTTP "+r.status; try{const b=await r.json(); if(b&&b.error)m=b.error;}catch(e){} throw new Error(m);} return r; }
+  const jpJson=(method,body)=>({method,headers:{"content-type":"application/json"},body:JSON.stringify(body||{})});
+
+  function rasterize(){   // export SVG -> PNG dataURL for the kiosk/dashboard preview (best effort)
+    return new Promise(resolve=>{
+      try{
+        const EW=600,EH=440,pad=36,save={...view};
+        const s=Math.max(0.1,Math.min((EW-2*pad)/M.W,(EH-2*pad)/M.H));
+        view.s=s; view.ox=(EW-M.W*s)/2; view.oy=(EH+M.H*s)/2;
+        const svg=buildSVG(M,{w:EW,h:EH,forExport:true});
+        Object.assign(view,save); render(false);
+        const img=new Image();
+        img.onload=()=>{ try{ const c=document.createElement("canvas"); c.width=EW; c.height=EH; c.getContext("2d").drawImage(img,0,0); resolve(c.toDataURL("image/png")); }catch(e){ resolve(null);} };
+        img.onerror=()=>resolve(null);
+        img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
+      }catch(e){ resolve(null); }
+    });
+  }
+
+  async function saveAndContinue(){
+    if(!M) render(false);
+    const params=collectParams(), name=readParams().part;
+    const btn=$("btnSaveCut"); if(btn){ btn.disabled=true; btn.textContent="Saving…"; }
+    try{
+      let id=jobId;
+      if(!id){ const job=await (await jpFetch("/api/jobs",jpJson("POST",{name,units:"in"}))).json(); id=job.id; }
+      else { await jpFetch("/api/jobs/"+id, jpJson("PUT",{name})); }
+      await jpFetch("/api/jobs/"+id+"/dxf", jpJson("PUT",{dxf:buildDXF(M),kind:"spacer",params}));
+      try{ const png=await rasterize(); if(png) await jpFetch("/api/jobs/"+id+"/thumb", jpJson("PUT",{dataUrl:png})); }catch(e){}
+      location.href="/cut?job="+id;
+    }catch(e){
+      alert("Save failed: "+e.message);
+      if(btn){ btn.disabled=false; btn.textContent="Save & Cut path →"; }
+    }
+  }
+
+  async function initJob(){
+    if(!jobId) return;
+    try{
+      const job=await (await jpFetch("/api/jobs/"+jobId)).json();
+      if(job.name) $("partName").value=job.name;
+      if(job.source && job.source.kind==="spacer" && job.source.params) restoreParams(job.source.params);
+    }catch(e){}
+  }
+
+  const _bsc=$("btnSaveCut"); if(_bsc) _bsc.addEventListener("click", saveAndContinue);
+  initJob();
+})();
+</script>
+</body>
+</html>

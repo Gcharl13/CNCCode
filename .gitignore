@@ -1,0 +1,6 @@
+node_modules/
+npm-debug.log*
+
+# Persisted job store (runtime data) — keep the folder, ignore its contents
+/data/jobs/*
+!/data/jobs/.gitkeep

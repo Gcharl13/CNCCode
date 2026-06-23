@@ -25,6 +25,8 @@ test.before(async () => {
 test.after(() => { server && server.close(); });
 
 const j = (r) => r.json();
+const postJson = (b) => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) });
+const putJson = (b) => ({ method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) });
 
 test('health responds ok', async () => {
   const res = await fetch(`${base}/api/health`);
@@ -134,4 +136,46 @@ test('persistence: job json is written to DATA_DIR/jobs', async () => {
   assert.ok(fs.existsSync(file), 'job json should exist on disk');
   const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'));
   assert.equal(onDisk.name, 'persist');
+});
+
+test('running status is valid and progress drives the cut counter', async () => {
+  const job = await j(await fetch(`${base}/api/jobs`, postJson({ name: 'prog' })));
+  await fetch(`${base}/api/jobs/${job.id}`, putJson({ quantity: 3 }));
+
+  let r = await fetch(`${base}/api/jobs/${job.id}/status`, postJson({ status: 'running' }));
+  assert.equal((await j(r)).status, 'running');
+
+  let u = await j(await fetch(`${base}/api/jobs/${job.id}/progress`, postJson({ delta: 2 })));
+  assert.equal(u.completed, 2);
+  assert.equal(u.status, 'running');
+
+  u = await j(await fetch(`${base}/api/jobs/${job.id}/progress`, postJson({ delta: -1 })));
+  assert.equal(u.completed, 1, 'decrement clamps within range');
+
+  u = await j(await fetch(`${base}/api/jobs/${job.id}/progress`, postJson({ delta: 99 })));
+  assert.equal(u.completed, 3, 'overshoot clamps to quantity');
+  assert.equal(u.status, 'done', 'auto-completes at quantity');
+});
+
+test('thumbnail round-trip, summary flag, and delete cleanup', async () => {
+  const job = await j(await fetch(`${base}/api/jobs`, postJson({ name: 'thumb' })));
+  const pngB64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+  let r = await fetch(`${base}/api/jobs/${job.id}/thumb`, putJson({ dataUrl: 'data:image/png;base64,' + pngB64 }));
+  assert.equal(r.status, 200);
+
+  const sum = (await j(await fetch(`${base}/api/jobs`))).find((x) => x.id === job.id);
+  assert.equal(sum.hasThumb, true);
+  assert.equal(sum.completed, 0);
+
+  r = await fetch(`${base}/api/jobs/${job.id}/thumb`);
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type'), /image\/png/);
+
+  r = await fetch(`${base}/api/jobs/${job.id}/thumb`, putJson({ dataUrl: 'not-a-png' }));
+  assert.equal(r.status, 400, 'rejects a non-PNG data URL');
+
+  await fetch(`${base}/api/jobs/${job.id}`, { method: 'DELETE' });
+  const pngPath = path.join(process.env.DATA_DIR, 'jobs', job.id + '.png');
+  assert.ok(!fs.existsSync(pngPath), 'png removed on delete');
 });

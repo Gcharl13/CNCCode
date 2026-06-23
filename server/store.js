@@ -17,7 +17,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { JOBS_DIR } = require('./config');
 
-const STATUSES = ['planned', 'nested', 'ready', 'done'];
+const STATUSES = ['planned', 'nested', 'ready', 'running', 'done'];
 
 async function ensureDirs() {
   await fsp.mkdir(JOBS_DIR, { recursive: true });
@@ -55,6 +55,7 @@ function newJob({ name, units } = {}) {
     updatedAt: now,
     units: units === 'mm' ? 'mm' : 'in',
     quantity: 1,
+    completed: 0,                            // parts cut so far (the kiosk tracks this)
     source: { kind: 'dxf', file: null },   // future: kind:"spacer", params:{...}
     settings: null,                          // getSettings() snapshot + raw inputs
     nesting: null,                           // serialized nest plan
@@ -68,10 +69,13 @@ function summarize(job) {
     name: job.name,
     status: job.status,
     quantity: job.quantity,
+    completed: job.completed || 0,
     units: job.units,
     updatedAt: job.updatedAt,
+    estMinutes: (job.outputs && job.outputs.estMinutes != null) ? job.outputs.estMinutes : null,
     hasDxf: !!(job.source && job.source.file),
-    hasNc: !!(job.outputs && job.outputs.ncFile)
+    hasNc: !!(job.outputs && job.outputs.ncFile),
+    hasThumb: !!job.thumb
   };
 }
 
@@ -107,7 +111,7 @@ async function createJob(input) {
   return job;
 }
 
-const UPDATABLE = ['name', 'units', 'quantity', 'settings', 'nesting', 'status'];
+const UPDATABLE = ['name', 'units', 'quantity', 'completed', 'settings', 'nesting', 'status'];
 
 async function updateJob(id, patch) {
   return withLock(id, async () => {
@@ -122,6 +126,7 @@ async function updateJob(id, patch) {
       }
       if (key === 'units') { job.units = patch.units === 'mm' ? 'mm' : 'in'; continue; }
       if (key === 'quantity') { job.quantity = Math.max(0, parseInt(patch.quantity, 10) || 0); continue; }
+      if (key === 'completed') { job.completed = Math.max(0, parseInt(patch.completed, 10) || 0); continue; }
       if (key === 'name') { job.name = String(patch.name).trim() || job.name; continue; }
       job[key] = patch[key];
     }
@@ -178,11 +183,49 @@ async function getNc(id) {
   catch (_) { return null; }
 }
 
+async function bumpProgress(id, delta) {
+  return withLock(id, async () => {
+    const job = await getJob(id);
+    if (!job) return null;
+    const q = job.quantity || 0;
+    let c = (job.completed || 0) + (parseInt(delta, 10) || 0);
+    if (c < 0) c = 0;
+    if (q > 0 && c > q) c = q;
+    job.completed = c;
+    if (q > 0 && c >= q) job.status = 'done';                  // finished the run
+    else if (job.status === 'ready') job.status = 'running';   // first cut starts it
+    job.updatedAt = new Date().toISOString();
+    await atomicWrite(jobPath(id), JSON.stringify(job, null, 2));
+    return job;
+  });
+}
+
+async function saveThumb(id, dataUrl) {
+  return withLock(id, async () => {
+    const job = await getJob(id);
+    if (!job) return null;
+    const m = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl || '').trim());
+    if (!m) { const e = new Error('Expected a PNG data URL'); e.status = 400; throw e; }
+    await atomicWrite(sibling(id, 'png'), Buffer.from(m[1], 'base64'));
+    job.thumb = id + '.png';
+    job.updatedAt = new Date().toISOString();
+    await atomicWrite(jobPath(id), JSON.stringify(job, null, 2));
+    return job;
+  });
+}
+
+async function getThumb(id) {
+  const job = await getJob(id);
+  if (!job || !job.thumb) return null;
+  try { return await fsp.readFile(sibling(id, 'png')); }
+  catch (_) { return null; }
+}
+
 async function deleteJob(id) {
   return withLock(id, async () => {
     const job = await getJob(id);
     if (!job) return false;
-    for (const p of [jobPath(id), sibling(id, 'dxf'), sibling(id, 'nc')]) {
+    for (const p of [jobPath(id), sibling(id, 'dxf'), sibling(id, 'nc'), sibling(id, 'png')]) {
       try { await fsp.unlink(p); } catch (_) { /* may not exist */ }
     }
     return true;
@@ -191,5 +234,6 @@ async function deleteJob(id) {
 
 module.exports = {
   STATUSES, ensureDirs, listJobs, getJob, createJob, updateJob,
-  saveSource, getSource, finalize, getNc, deleteJob, summarize
+  saveSource, getSource, finalize, getNc, bumpProgress, saveThumb, getThumb,
+  deleteJob, summarize
 };

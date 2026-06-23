@@ -92,6 +92,34 @@ router.post('/jobs/:id/status', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// Bump the cut counter (kiosk "+1 cut"); auto-advances ready->running and ->done at quantity
+router.post('/jobs/:id/progress', async (req, res, next) => {
+  try {
+    const delta = (req.body && req.body.delta != null) ? req.body.delta : 1;
+    const job = await store.bumpProgress(req.params.id, delta);
+    if (!job) return notFound(res);
+    res.json(job);
+  } catch (e) { next(e); }
+});
+
+// Save a part-preview thumbnail (PNG data URL captured from the design canvas)
+router.put('/jobs/:id/thumb', async (req, res, next) => {
+  try {
+    const job = await store.saveThumb(req.params.id, (req.body && req.body.dataUrl) || '');
+    if (!job) return notFound(res);
+    res.json(job);
+  } catch (e) { next(e); }
+});
+
+// Serve the thumbnail image
+router.get('/jobs/:id/thumb', async (req, res, next) => {
+  try {
+    const png = await store.getThumb(req.params.id);
+    if (png == null) return res.status(404).json({ error: 'No thumbnail' });
+    res.type('image/png').send(png);
+  } catch (e) { next(e); }
+});
+
 // Delete
 router.delete('/jobs/:id', async (req, res, next) => {
   try {

@@ -13,6 +13,9 @@ function createApp() {
   // Quietly handle the browser's automatic favicon request (no asset yet).
   app.get('/favicon.ico', (req, res) => res.status(204).end());
 
+  // Clean URL for the shop-floor kiosk (static also serves /kiosk.html).
+  app.get('/kiosk', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'kiosk.html')));
+
   // API
   app.get('/api/health', (req, res) => res.json({ ok: true, ts: Date.now() }));
   app.use('/api', jobsRouter);

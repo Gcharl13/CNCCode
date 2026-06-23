@@ -6,7 +6,8 @@
  *
  * Drives the actual UI: load page -> create job -> load a part (the geometry
  * engine runs in the real browser and produces G-code) -> save -> finalize ->
- * verify the .nc is persisted and downloadable server-side.
+ * verify the .nc is persisted and downloadable server-side; then open the
+ * kiosk and drive the job Start -> +1 cut -> Done.
  */
 
 const os = require('os');
@@ -39,6 +40,15 @@ async function poll(fn, { tries = 40, gap = 150 } = {}) {
     await sleep(gap);
   }
   return null;
+}
+
+async function clickByText(pg, text) {
+  const ok = await pg.evaluate((t) => {
+    const b = [...document.querySelectorAll('.card .btn')].find((x) => x.textContent.trim().includes(t));
+    if (b) { b.click(); return true; }
+    return false;
+  }, text);
+  if (!ok) throw new Error('kiosk button not found: ' + text);
 }
 
 (async () => {
@@ -89,6 +99,9 @@ async function poll(fn, { tries = 40, gap = 150 } = {}) {
     assert.ok(gen.gcodeLen > 0, 'G-code generated in-browser (len ' + gen.gcodeLen + ')');
     console.log('✓ part loaded; engine generated G-code in-browser (' + gen.gcodeLen + ' chars)');
 
+    // Set a quantity so the kiosk can show partial progress (default is 1)
+    await page.evaluate(() => { const q = document.getElementById('jobQty'); q.value = '3'; q.dispatchEvent(new Event('change')); });
+
     // 4) Save -> job gains source DXF on the server
     await page.click('#btnJobSave');
     const saved = await poll(async () => {
@@ -112,6 +125,31 @@ async function poll(fn, { tries = 40, gap = 150 } = {}) {
     const browserGcode = await page.evaluate(() => state.gcode.text);
     assert.equal(nc, browserGcode, 'downloaded .nc is byte-identical to the in-browser G-code');
     console.log('✓ Finalize stored .nc; download byte-identical to generated G-code');
+
+    // 6) Kiosk view: the finalized job shows as Ready; run it Start -> +1 cut -> Done
+    const kiosk = await browser.newPage();
+    const kerr = [];
+    kiosk.on('pageerror', (e) => kerr.push('pageerror: ' + e.message));
+    kiosk.on('console', (m) => { if (m.type() === 'error') kerr.push('console.error: ' + m.text()); });
+    const kclient = await kiosk.createCDPSession();
+    await kclient.send('Page.setDownloadBehavior', { behavior: 'deny' });
+    await kiosk.goto(base + '/kiosk', { waitUntil: 'networkidle0' });
+
+    await kiosk.waitForFunction(() => document.querySelectorAll('.card.ready').length > 0, { timeout: 10000 });
+    assert.equal(kerr.length, 0, 'kiosk loaded without JS errors; got: ' + kerr.join(' | '));
+    const thumbOk = await kiosk.evaluate(() => { const i = document.querySelector('.card .thumb img'); return !!(i && i.complete && i.naturalWidth > 0); });
+    assert.ok(thumbOk, 'kiosk shows the part thumbnail');
+    console.log('✓ kiosk shows the finalized job as Ready, with thumbnail');
+
+    await clickByText(kiosk, 'Start');
+    await kiosk.waitForFunction(() => document.querySelectorAll('.card.running').length > 0, { timeout: 10000 });
+    await clickByText(kiosk, '+1 cut');
+    await kiosk.waitForFunction(() => { const b = document.querySelector('.card.running .prognum b'); return b && b.textContent === '1'; }, { timeout: 10000 });
+    await clickByText(kiosk, 'Done');
+    await kiosk.waitForFunction(() => document.querySelectorAll('.card.done').length > 0, { timeout: 10000 });
+    const fin = await (await fetch(`${base}/api/jobs/${jobId}`)).json();
+    assert.equal(fin.status, 'done', 'job marked done from the kiosk');
+    console.log('✓ kiosk Start → +1 cut → Done drives the job through the queue');
 
     console.log('\nALL E2E CHECKS PASSED');
   } catch (e) {

@@ -56,6 +56,7 @@
   <span id="fileLabel">no file</span>
   <label for="fileInput"><button onclick="document.getElementById('fileInput').click()" class="primary">Open DXF…</button></label>
   <input type="file" id="fileInput" accept=".dxf" style="display:none">
+  <a href="/kiosk" target="_blank" style="color:var(--accent);text-decoration:none;border:1px solid var(--line);padding:6px 10px;border-radius:5px;margin-left:8px">Kiosk &#8599;</a>
 </header>
 
 <div id="main">
@@ -10978,6 +10979,19 @@ if (typeof window !== 'undefined') {
     };
   }
 
+  function captureThumb() {
+    var c = document.getElementById('cnv');
+    if (!c || !c.width || !c.height) return null;
+    var maxW = 360, scale = Math.min(1, maxW / c.width);
+    var off = document.createElement('canvas');
+    off.width = Math.max(1, Math.round(c.width * scale));
+    off.height = Math.max(1, Math.round(c.height * scale));
+    var ctx = off.getContext('2d');
+    ctx.fillStyle = '#0d1117'; ctx.fillRect(0, 0, off.width, off.height); // app bg behind transparent areas
+    ctx.drawImage(c, 0, 0, off.width, off.height);
+    try { return off.toDataURL('image/png'); } catch (e) { return null; }
+  }
+
   /* ---- actions ---- */
   async function newJob() {
     var name = prompt('New job name:', 'Job ' + new Date().toLocaleDateString());
@@ -11002,6 +11016,7 @@ if (typeof window !== 'undefined') {
       if (typeof state !== 'undefined' && state.sourceDxf) {
         await api('/jobs/' + current.id + '/dxf', jsonOpts('PUT', { dxf: state.sourceDxf }));
       }
+      try { var thumb = captureThumb(); if (thumb) await api('/jobs/' + current.id + '/thumb', jsonOpts('PUT', { dataUrl: thumb })); } catch (te) {}
       current = await (await api('/jobs/' + current.id)).json();
       setJobUI(); note('Saved job "' + current.name + '"');
       return true;

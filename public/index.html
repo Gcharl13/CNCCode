@@ -10415,7 +10415,7 @@ function detectNestParts() {
   var loops = state.originalChained.loops;
   var outers = [], holes = [];
   loops.forEach(function (L) { (L.isHole ? holes : outers).push(L); });
-  if (outers.length < 2) return;
+  if (outers.length < 1) return;   // a single part still nests (production: fill a sheet with copies)
   var parts = outers.map(function (o) {
     var bb = bboxOf([o.pts]);
     return { outer: o, holes: [], bb: bb, w: bb.maxx - bb.minx, h: bb.maxy - bb.miny };
@@ -11064,6 +11064,9 @@ if (typeof window !== 'undefined') {
         job.nesting.parts.forEach(function (p, i) {
           if (state.nestParts[i]) { state.nestParts[i].qty = p.qty; if (p.rotOk != null) state.nestParts[i].rotOk = p.rotOk; }
         });
+        if (typeof renderNestPanel === 'function') renderNestPanel();
+      } else if (typeof state !== 'undefined' && state.nestParts && state.nestParts.length === 1 && job.quantity != null) {
+        state.nestParts[0].qty = Math.max(1, job.quantity);   // single spacer: nest count follows the job quantity
         if (typeof renderNestPanel === 'function') renderNestPanel();
       }
       if (typeof applyUnitLabels === 'function') applyUnitLabels();

@@ -11073,6 +11073,10 @@ if (typeof window !== 'undefined') {
       if (typeof regenerate === 'function') regenerate();
       if (typeof fitView === 'function') fitView();
       current = job; setJobUI();
+      // auto-nest a full sheet for single-part (spacer) jobs so the layout is ready to cut
+      if (typeof nestSolo === 'function' && typeof state !== 'undefined' && state.nestParts && state.nestParts.length === 1) {
+        try { nestSolo(0); } catch (e) {}
+      }
       el('jobList').style.display = 'none';
       note('Opened job "' + job.name + '"');
     } catch (e) { note('Open failed: ' + e.message, true); }

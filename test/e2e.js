@@ -72,33 +72,27 @@ async function clickByText(pg, text) {
     assert.ok(page.url().includes('/cut?job=' + jobId), 'navigated to cut path; got ' + page.url());
     console.log('✓ spacer "Save & Cut path" -> cut page');
 
-    // 3) Cut path: the spacer DXF auto-loads and the engine produces G-code
+    // 3) Cut path: the spacer DXF auto-loads, auto-nests a full sheet, and the engine makes G-code
     await page.waitForSelector('#jobBox', { visible: true });
     await page.waitForFunction(
-      () => typeof state !== 'undefined' && state.gcode && state.gcode.text && state.gcode.text.length > 0,
+      () => typeof state !== 'undefined' && state.chained && state.chained.loops &&
+            state.chained.loops.filter((l) => !l.isHole).length >= 2 &&
+            state.gcode && state.gcode.text && state.gcode.text.length > 0,
       { timeout: 20000 });
     noJsErrors('cut path');
     const gen = await page.evaluate(() => ({
-      chained: !!(state.chained && state.chained.loops && state.chained.loops.length),
+      outers: state.chained.loops.filter((l) => !l.isHole).length,
       holes: state.chained.loops.filter((l) => l.isHole).length,
       glen: state.gcode.text.length
     }));
-    assert.ok(gen.chained && gen.holes > 0, 'spacer DXF chained with holes (' + gen.holes + ')');
-    assert.ok(gen.glen > 0, 'G-code generated from spacer part');
-    console.log('✓ cut page auto-loaded spacer part; ' + gen.holes + ' holes, G-code ' + gen.glen + ' chars');
-
-    // nesting panel is visible for the single spacer; nest a few copies onto the sheet
+    assert.ok(gen.outers >= 2, 'opening the job auto-nested a full sheet (' + gen.outers + ' parts)');
+    assert.ok(gen.glen > 0, 'G-code generated for the nested sheet');
     const nestVisible = await page.evaluate(() => {
       const b = document.getElementById('nestBox');
       return !!(b && b.style.display !== 'none' && document.querySelectorAll('#nestParts .nestrow').length > 0);
     });
-    assert.ok(nestVisible, 'nesting panel visible for the spacer part');
-    await page.evaluate(() => { const i = document.querySelector('#nestParts input[data-nq]'); if (i) { i.value = '4'; i.dispatchEvent(new Event('change')); } });
-    await page.click('#btnNest'); // Mixed sheet
-    await page.waitForFunction(() => state.chained && state.chained.loops.filter((l) => !l.isHole).length >= 2, { timeout: 10000 });
-    const outers = await page.evaluate(() => state.chained.loops.filter((l) => !l.isHole).length);
-    assert.ok(outers >= 2, 'nested multiple parts onto the sheet (' + outers + ')');
-    console.log('✓ nesting panel works; nested ' + outers + ' parts onto the sheet');
+    assert.ok(nestVisible, 'nesting panel visible');
+    console.log('✓ cut page auto-loaded + auto-nested ' + gen.outers + ' parts; ' + gen.holes + ' holes, G-code ' + gen.glen + ' chars');
 
     // set quantity and finalize
     await page.evaluate(() => { const q = document.getElementById('jobQty'); q.value = '3'; q.dispatchEvent(new Event('change')); });
